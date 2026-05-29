@@ -105,6 +105,10 @@ extension NetworkTaskEntity {
         formattedHeaders(from: currentRequest?.headers ?? originalRequest?.headers ?? [:])
     }
 
+    var requestHeaderCount: Int {
+        (currentRequest?.headers ?? originalRequest?.headers ?? [:]).count
+    }
+
     var responseHeadersText: String {
         formattedHeaders(from: response?.headers ?? [:])
     }
@@ -122,11 +126,38 @@ extension NetworkTaskEntity {
     }
 
     var responseBodyText: String {
-        renderedBodyText(from: responseBody?.data, fallbackSize: responseBodySize)
+        renderedBodyText(from: responseBodyData, fallbackSize: responseBodySize)
     }
 
-    var shareableResponseText: String {
-        responseBodyText
+    var requestBodyData: Data? {
+        requestBody?.data
+    }
+
+    var curlCommandText: String {
+        let methodValue = (httpMethod?.isEmpty == false ? httpMethod! : "GET").uppercased()
+        let requestURL = primaryURLText == "Unknown Request" ? "" : primaryURLText
+        let headers = (currentRequest?.headers ?? originalRequest?.headers ?? [:])
+            .sorted { lhs, rhs in lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending }
+
+        var lines = ["curl \(requestURL.shellQuotedForBash)"]
+        lines.append("  -X \(methodValue.shellQuotedForBash)")
+
+        for (name, value) in headers {
+            lines.append("  -H \(("\(name): \(value)").shellQuotedForBash)")
+        }
+
+        if let requestBodyText = decodedRequestText(from: requestBodyData), !requestBodyText.isEmpty {
+            lines.append("  --data-raw \(requestBodyText.shellQuotedForBash)")
+        }
+
+        return lines.joined(separator: " \\\n")
+    }
+
+    var shareableResponseText: String? {
+        if let prettyJSON = prettyPrintedResponseJSON {
+            return prettyJSON
+        }
+        return decodedResponseText
     }
 
     var errorSummary: String {
@@ -153,6 +184,33 @@ extension NetworkTaskEntity {
         NetworkRequestBlocklist.normalizedURL(url ?? "")
     }
 
+    var responseBodyData: Data? {
+        responseBody?.data
+    }
+
+    var responseContentTypeValue: NetworkLogger.ContentType? {
+        responseBody?.contentType
+            ?? response?.contentType
+            ?? responseContentType.flatMap(NetworkLogger.ContentType.init)
+    }
+
+    var prettyPrintedResponseJSON: String? {
+        guard let data = responseBodyData else {
+            return nil
+        }
+        return prettyJSONString(from: data)
+    }
+
+    var decodedResponseText: String? {
+        decodedRequestText(from: responseBodyData)
+    }
+
+    var binaryResponseSummary: String {
+        let sizeDescription = Int64(responseBodyData?.count ?? Int(responseBodySize)).byteCountString
+        let contentTypeDescription = responseContentTypeValue?.rawValue ?? "unknown content type"
+        return "Binary response captured (\(sizeDescription), \(contentTypeDescription)). Use Save Response to export the original body."
+    }
+
     private func formattedHeaders(from headers: [String: String]) -> String {
         guard !headers.isEmpty else {
             return "No Headers"
@@ -168,8 +226,8 @@ extension NetworkTaskEntity {
             if let prettyJSON = prettyJSONString(from: data) {
                 return prettyJSON
             }
-            if let utf8 = String(data: data, encoding: .utf8), !utf8.isEmpty {
-                return utf8
+            if let decodedText = decodedRequestText(from: data) {
+                return decodedText
             }
             return "Binary payload (\(fallbackSize.byteCountString))"
         }
@@ -190,6 +248,22 @@ extension NetworkTaskEntity {
         }
         return string
     }
+
+    private func decodedRequestText(from data: Data?) -> String? {
+        guard let data else {
+            return nil
+        }
+
+        if let utf8 = String(data: data, encoding: .utf8), !utf8.isEmpty {
+            return utf8
+        }
+
+        if let unicode = String(data: data, encoding: .unicode), !unicode.isEmpty {
+            return unicode
+        }
+
+        return nil
+    }
 }
 
 extension Int64 {
@@ -198,6 +272,12 @@ extension Int64 {
             return "Unknown"
         }
         return ByteCountFormatter.string(fromByteCount: self, countStyle: .binary)
+    }
+}
+
+private extension String {
+    var shellQuotedForBash: String {
+        "'" + replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 }
 #endif

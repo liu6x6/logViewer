@@ -85,7 +85,7 @@ private struct PulseNetworkConsoleView: View {
                     subtitle: "收到远端网络摘要后，这里会显示请求、状态码、头信息与响应体预览。"
                 )
             } else {
-                List(selection: $selection) {
+                List {
                     if query.grouping == .none {
                         ForEach(controller.tasks) { task in
                             networkRow(task)
@@ -319,7 +319,9 @@ private struct PulseNetworkConsoleView: View {
                 controller.delete(taskWithID: task.objectID)
             }
         )
-        .tag(PulseConsoleSelection.network(task.objectID))
+        .onTapGesture {
+            selection = .network(task.objectID)
+        }
         .listRowInsets(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
         .listRowBackground(Color.clear)
     }
@@ -438,7 +440,6 @@ private struct PulseNetworkRowView: View {
                 .font(.headline)
                 .lineLimit(4)
                 .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
 
             Text(task.secondaryNetworkSummary)
                 .font(.subheadline)
@@ -460,7 +461,9 @@ private struct PulseNetworkRowView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(cardStrokeColor, lineWidth: 1)
         }
+        .shadow(color: cardShadowColor, radius: isSelected ? 14 : 6, y: isSelected ? 4 : 2)
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .animation(.easeInOut(duration: 0.16), value: isSelected)
         .contextMenu {
             Menu("Add to Blacklist") {
                 if let normalizedHost = task.normalizedHostValue {
@@ -488,11 +491,15 @@ private struct PulseNetworkRowView: View {
     }
 
     private var cardBackground: Color {
-        isSelected ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor)
+        isSelected ? Color.accentColor.opacity(0.10) : Color(nsColor: .controlBackgroundColor)
     }
 
     private var cardStrokeColor: Color {
-        isSelected ? Color.accentColor.opacity(0.45) : Color.black.opacity(0.06)
+        isSelected ? Color.accentColor.opacity(0.65) : Color.black.opacity(0.06)
+    }
+
+    private var cardShadowColor: Color {
+        isSelected ? Color.accentColor.opacity(0.18) : Color.black.opacity(0.05)
     }
 
     private func capsule(title: String, tint: Color) -> some View {
