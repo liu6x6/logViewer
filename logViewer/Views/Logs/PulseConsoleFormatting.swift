@@ -17,6 +17,7 @@ struct PulseConsoleHostView: View {
             case .network:
                 PulseNetworkConsoleView(
                     context: injector.store.viewContext,
+                    blocklist: injector.blocklist,
                     selection: $selection
                 )
             }
@@ -54,12 +55,20 @@ private struct PulseMessagesConsoleView: View {
 
 private struct PulseNetworkConsoleView: View {
     @StateObject private var controller: PulseNetworkQueryController
+    @ObservedObject private var blocklist: NetworkRequestBlocklist
     @State private var query = PulseNetworkConsoleQuery()
     @State private var expandedSections: Set<String> = []
     @Binding var selection: PulseConsoleSelection?
 
-    init(context: NSManagedObjectContext, selection: Binding<PulseConsoleSelection?>) {
-        _controller = StateObject(wrappedValue: PulseNetworkQueryController(context: context))
+    init(
+        context: NSManagedObjectContext,
+        blocklist: NetworkRequestBlocklist,
+        selection: Binding<PulseConsoleSelection?>
+    ) {
+        _controller = StateObject(
+            wrappedValue: PulseNetworkQueryController(context: context, blocklist: blocklist.snapshot)
+        )
+        _blocklist = ObservedObject(wrappedValue: blocklist)
         _selection = selection
     }
 
@@ -75,100 +84,48 @@ private struct PulseNetworkConsoleView: View {
                     title: "No Network Traffic Yet",
                     subtitle: "收到远端网络摘要后，这里会显示请求、状态码、头信息与响应体预览。"
                 )
-            } else if query.grouping == .none {
-                Table(controller.tasks, selection: networkSelection) {
-                    TableColumn("Method") { task in
-                        Text(task.methodDisplayText)
-                            .font(.caption.weight(.semibold))
-                    }
-                    .width(min: 72, ideal: 84)
-
-                    TableColumn("Host") { task in
-                        Text(task.hostDisplayText)
-                            .lineLimit(1)
-                    }
-                    .width(min: 140, ideal: 180)
-
-                    TableColumn("Request") { task in
-                        Text(task.primaryURLText)
-                            .lineLimit(1)
-                    }
-                    .width(min: 220, ideal: 320)
-
-                    TableColumn("Status") { task in
-                        Text(task.statusDisplayText)
-                            .foregroundStyle(task.statusAccentColor)
-                    }
-                    .width(min: 72, ideal: 84)
-
-                    TableColumn("Duration") { task in
-                        Text(task.durationText)
-                            .font(.caption.monospacedDigit())
-                    }
-                    .width(min: 90, ideal: 110)
-
-                    TableColumn("Size") { task in
-                        Text(task.sizeDisplayText)
-                            .font(.caption.monospacedDigit())
-                    }
-                    .width(min: 90, ideal: 110)
-
-                    TableColumn("Date") { task in
-                        Text(task.formattedTimestamp)
-                            .font(.caption.monospacedDigit())
-                    }
-                    .width(min: 140, ideal: 160)
-
-                    TableColumn("Error") { task in
-                        Text(task.errorDisplayText)
-                            .lineLimit(1)
-                            .foregroundStyle(task.state == .failure ? .red : .secondary)
-                    }
-                    .width(min: 180, ideal: 220)
-                }
             } else {
                 List(selection: $selection) {
-                    ForEach(groupedSections) { section in
-                        Section {
-                            if expandedSections.contains(section.id) {
-                                ForEach(section.tasks) { task in
-                                    PulseNetworkRowView(task: task)
-                                        .tag(PulseConsoleSelection.network(task.objectID))
+                    if query.grouping == .none {
+                        ForEach(controller.tasks) { task in
+                            networkRow(task)
+                        }
+                    } else {
+                        ForEach(groupedSections) { section in
+                            Section {
+                                if expandedSections.contains(section.id) {
+                                    ForEach(section.tasks) { task in
+                                        networkRow(task)
+                                    }
                                 }
+                            } header: {
+                                groupHeader(for: section)
                             }
-                        } header: {
-                            Button {
-                                toggleSection(section.id)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: expandedSections.contains(section.id) ? "chevron.down" : "chevron.right")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-
-                                    Text(section.title)
-                                        .font(.subheadline.weight(.semibold))
-
-                                    Spacer()
-
-                                    Text("\(section.tasks.count)")
-                                        .font(.caption.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .textCase(nil)
                         }
                     }
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+                .listStyle(.inset)
             }
         }
-        .onChange(of: query) { controller.apply(query: $0) }
-        .onChange(of: query.grouping) { _ in
+        .onChange(of: query) { _, newQuery in
+            controller.apply(query: newQuery, blocklist: blocklist.snapshot)
+        }
+        .onChange(of: blocklist.snapshot) { _, snapshot in
+            controller.apply(query: query, blocklist: snapshot)
+        }
+        .onChange(of: query.grouping) { _, _ in
             expandedSections = Set(groupedSections.map(\.id))
         }
-        .onChange(of: groupedSections.map(\.id)) { ids in
+        .onChange(of: controller.tasks.map(\.objectID)) { _, visibleTaskIDs in
+            guard case let .network(objectID) = selection else {
+                return
+            }
+
+            if !visibleTaskIDs.contains(objectID) {
+                selection = nil
+            }
+        }
+        .onChange(of: groupedSections.map(\.id)) { _, ids in
             let next = Set(ids)
             if expandedSections.isEmpty {
                 expandedSections = next
@@ -180,20 +137,6 @@ private struct PulseNetworkConsoleView: View {
 
     private var groupedSections: [PulseNetworkGroupSection] {
         controller.makeSections(grouping: query.grouping)
-    }
-
-    private var networkSelection: Binding<NSManagedObjectID?> {
-        Binding(
-            get: {
-                guard case let .network(objectID) = selection else {
-                    return nil
-                }
-                return objectID
-            },
-            set: { objectID in
-                selection = objectID.map(PulseConsoleSelection.network)
-            }
-        )
     }
 
     private var networkToolbar: some View {
@@ -343,6 +286,44 @@ private struct PulseNetworkConsoleView: View {
         }
     }
 
+    private func groupHeader(for section: PulseNetworkGroupSection) -> some View {
+        Button {
+            toggleSection(section.id)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: expandedSections.contains(section.id) ? "chevron.down" : "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(section.title)
+                    .font(.subheadline.weight(.semibold))
+
+                Spacer()
+
+                Text("\(section.tasks.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .textCase(nil)
+    }
+
+    private func networkRow(_ task: NetworkTaskEntity) -> some View {
+        PulseNetworkRowView(
+            task: task,
+            isSelected: selection == .network(task.objectID),
+            blocklist: blocklist,
+            deleteAction: {
+                controller.delete(taskWithID: task.objectID)
+            }
+        )
+        .tag(PulseConsoleSelection.network(task.objectID))
+        .listRowInsets(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
+        .listRowBackground(Color.clear)
+    }
+
     private func statusBinding(for filter: PulseNetworkStatusFilter) -> Binding<Bool> {
         Binding(
             get: { query.statusFilters.contains(filter) },
@@ -429,50 +410,102 @@ private struct PulseMessageRowView: View {
 
 private struct PulseNetworkRowView: View {
     let task: NetworkTaskEntity
+    let isSelected: Bool
+    @ObservedObject var blocklist: NetworkRequestBlocklist
+    let deleteAction: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(task.methodDisplayText)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(task.primaryURLText)
-                        .font(.headline)
-                        .lineLimit(1)
-
-                    Text(task.secondaryNetworkSummary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                HStack(spacing: 8) {
+                    capsule(title: task.methodDisplayText, tint: .secondary)
+                    capsule(title: task.statusDisplayText, tint: task.statusAccentColor)
                 }
+
+                Text(task.hostDisplayText)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
 
                 Spacer(minLength: 12)
 
-                VStack(alignment: .trailing, spacing: 6) {
-                    Text(task.formattedTimestamp)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-
-                    Text(task.statusDisplayText)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(task.statusAccentColor)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(task.statusAccentColor.opacity(0.12), in: Capsule())
-                }
+                Text(task.formattedTimestamp)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
             }
 
-            HStack(spacing: 12) {
-                Label(task.sizeDisplayText, systemImage: "arrow.down.circle")
-                Label(task.responseHeaderSummary, systemImage: "rectangle.compress.vertical")
-                Label(task.durationText, systemImage: "timer")
+            Text(task.primaryURLText)
+                .font(.headline)
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            Text(task.secondaryNetworkSummary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+
+            HStack(spacing: 14) {
+                metricLabel(task.sizeDisplayText, systemImage: "arrow.down.circle")
+                metricLabel(task.responseHeaderSummary, systemImage: "rectangle.compress.vertical")
+                metricLabel(task.durationText, systemImage: "timer")
             }
             .font(.caption)
             .foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(cardBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(cardStrokeColor, lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contextMenu {
+            Menu("Add to Blacklist") {
+                if let normalizedHost = task.normalizedHostValue {
+                    Button("Add Host: \(normalizedHost)") {
+                        _ = blocklist.addHost(normalizedHost)
+                    }
+                }
+
+                if let normalizedURL = task.normalizedURLValue {
+                    Button("Add URL") {
+                        _ = blocklist.addURL(normalizedURL)
+                    }
+                }
+
+                if task.normalizedHostValue == nil, task.normalizedURLValue == nil {
+                    Button("No blacklist target available") {}
+                        .disabled(true)
+                }
+            }
+
+            Divider()
+
+            Button("Delete Request", role: .destructive, action: deleteAction)
+        }
+    }
+
+    private var cardBackground: Color {
+        isSelected ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor)
+    }
+
+    private var cardStrokeColor: Color {
+        isSelected ? Color.accentColor.opacity(0.45) : Color.black.opacity(0.06)
+    }
+
+    private func capsule(title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.12), in: Capsule())
+    }
+
+    private func metricLabel(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
     }
 }
 

@@ -193,7 +193,7 @@ struct PulseNetworkConsoleQuery: Equatable {
     var durationFilter: PulseNetworkDurationFilter = .any
     var sizeFilter: PulseNetworkSizeFilter = .any
     var errorFilter: PulseNetworkErrorFilter = .any
-    var grouping: PulseNetworkGrouping = .none
+    var grouping: PulseNetworkGrouping = .host
     var sortField: PulseNetworkSortField = .date
     var sortDirection: PulseNetworkSortDirection = .descending
 
@@ -273,19 +273,28 @@ final class PulseNetworkQueryController: NSObject, ObservableObject, NSFetchedRe
     private let context: NSManagedObjectContext
     private var fetchedResultsController: NSFetchedResultsController<NetworkTaskEntity>?
     private var currentQuery = PulseNetworkConsoleQuery()
+    private var currentBlocklist = NetworkRequestBlocklistSnapshot.empty
 
-    init(context: NSManagedObjectContext) {
+    init(
+        context: NSManagedObjectContext,
+        blocklist: NetworkRequestBlocklistSnapshot
+    ) {
         self.context = context
+        self.currentBlocklist = blocklist
         super.init()
-        apply(query: currentQuery)
+        apply(query: currentQuery, blocklist: blocklist)
         refreshFacets()
     }
 
-    func apply(query: PulseNetworkConsoleQuery) {
+    func apply(
+        query: PulseNetworkConsoleQuery,
+        blocklist: NetworkRequestBlocklistSnapshot
+    ) {
         currentQuery = query
+        currentBlocklist = blocklist
 
         let request = NSFetchRequest<NetworkTaskEntity>(entityName: "NetworkTaskEntity")
-        request.predicate = query.predicate
+        request.predicate = makeCombinedPredicate(extraPredicate: nil)
         request.sortDescriptors = query.sortDescriptors
         request.fetchBatchSize = 200
         request.returnsObjectsAsFaults = false
@@ -338,6 +347,33 @@ final class PulseNetworkQueryController: NSObject, ObservableObject, NSFetchedRe
         return orderedSections
     }
 
+    func delete(taskWithID objectID: NSManagedObjectID) {
+        context.performAndWait {
+            guard
+                let managedObject = try? context.existingObject(with: objectID),
+                let task = managedObject as? NetworkTaskEntity
+            else {
+                return
+            }
+
+            if let requestBody = task.requestBody {
+                context.delete(requestBody)
+            }
+
+            if let responseBody = task.responseBody {
+                context.delete(responseBody)
+            }
+
+            context.delete(task)
+
+            do {
+                try context.safeSave()
+            } catch {
+                print("[logViewer][NetworkConsole] delete failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func refreshFacets() {
         availableHosts = fetchDistinctValues(for: "host")
         availableMethods = fetchDistinctValues(for: "httpMethod")
@@ -349,7 +385,9 @@ final class PulseNetworkQueryController: NSObject, ObservableObject, NSFetchedRe
         request.returnsDistinctResults = true
         request.propertiesToFetch = [key]
         request.propertiesToGroupBy = [key]
-        request.predicate = NSPredicate(format: "%K != nil AND %K != ''", key, key)
+        request.predicate = makeCombinedPredicate(
+            extraPredicate: NSPredicate(format: "%K != nil AND %K != ''", key, key)
+        )
 
         do {
             return try context.fetch(request)
@@ -358,6 +396,20 @@ final class PulseNetworkQueryController: NSObject, ObservableObject, NSFetchedRe
         } catch {
             print("[logViewer][NetworkConsole] facet fetch failed: \(error.localizedDescription)")
             return []
+        }
+    }
+
+    private func makeCombinedPredicate(extraPredicate: NSPredicate?) -> NSPredicate? {
+        let predicates = [currentQuery.predicate, currentBlocklist.exclusionPredicate, extraPredicate]
+            .compactMap { $0 }
+
+        switch predicates.count {
+        case 0:
+            return nil
+        case 1:
+            return predicates[0]
+        default:
+            return NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
         }
     }
 }

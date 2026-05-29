@@ -142,6 +142,17 @@ extension NetworkTaskEntity {
         return "None"
     }
 
+    var normalizedHostValue: String? {
+        if let host, let normalizedHost = NetworkRequestBlocklist.normalizedHost(host) {
+            return normalizedHost
+        }
+        return url.flatMap(NetworkRequestBlocklist.normalizedHost)
+    }
+
+    var normalizedURLValue: String? {
+        NetworkRequestBlocklist.normalizedURL(url ?? "")
+    }
+
     private func formattedHeaders(from headers: [String: String]) -> String {
         guard !headers.isEmpty else {
             return "No Headers"

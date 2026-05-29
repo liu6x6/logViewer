@@ -11,12 +11,17 @@ final class PulseStoreInjector {
     }
 
     let store: LoggerStore
+    let blocklist: NetworkRequestBlocklist
     let storeLocation: StoreLocation
     let storeURL: URL
 
     private let decoder = LogPacketDecoder()
 
-    init(storeLocation: StoreLocation = .temporarySandbox) {
+    init(
+        storeLocation: StoreLocation = .temporarySandbox,
+        blocklist: NetworkRequestBlocklist? = nil
+    ) {
+        self.blocklist = blocklist ?? NetworkRequestBlocklist()
         self.storeLocation = storeLocation
         self.storeURL = Self.makeStoreURL(for: storeLocation)
 
@@ -92,6 +97,10 @@ final class PulseStoreInjector {
             return
         }
 
+        guard !blocklist.snapshot.matches(url: url) else {
+            return
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = payload.method
         request.allHTTPHeaderFields = payload.requestHeaders.isEmpty ? nil : payload.requestHeaders
@@ -146,6 +155,10 @@ final class PulseStoreInjector {
             return
         }
 
+        guard !blocklist.snapshot.matches(url: url) else {
+            return
+        }
+
         var request = URLRequest(
             url: url,
             cachePolicy: event.originalRequest.cachePolicy,
@@ -175,6 +188,10 @@ final class PulseStoreInjector {
 
     var storeDescription: String {
         "\(storeLocation.rawValue) · \(storeURL.lastPathComponent)"
+    }
+
+    func clearAllRecords() {
+        store.removeAll()
     }
 
     func messageEntity(for objectID: NSManagedObjectID) -> LoggerMessageEntity? {
@@ -299,6 +316,7 @@ import Foundation
 
 @MainActor
 final class PulseStoreInjector {
+    let blocklist: NetworkRequestBlocklist
     enum StoreLocation: String, Sendable {
         case inMemory = "In-Memory"
         case temporarySandbox = "Temporary Sandbox"
@@ -307,7 +325,11 @@ final class PulseStoreInjector {
     let storeLocation: StoreLocation
     let storeURL: URL
 
-    init(storeLocation: StoreLocation = .temporarySandbox) {
+    init(
+        storeLocation: StoreLocation = .temporarySandbox,
+        blocklist: NetworkRequestBlocklist? = nil
+    ) {
+        self.blocklist = blocklist ?? NetworkRequestBlocklist()
         self.storeLocation = storeLocation
         self.storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("logviewer-live-placeholder.pulse", isDirectory: true)
@@ -315,9 +337,13 @@ final class PulseStoreInjector {
 
     func injectReceivedPacket(_ packet: LogViewerReceivedPacket) {}
 
+    func injectRemoteLoggerEvent(_ event: Any, peerDisplayName: String) {}
+
     var storeDescription: String {
         "Pulse not linked"
     }
+
+    func clearAllRecords() {}
 
     func messageEntity(for objectID: Any) -> Any? { nil }
 

@@ -6,6 +6,7 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var devices: [DeviceModel] = []
     @Published private(set) var connectedDeviceNames: [String] = []
     @Published private(set) var latestReceivedPayload: String?
+    let networkBlocklist: NetworkRequestBlocklist
 
     #if os(macOS)
     private let receiver: MacLogReceiver
@@ -19,21 +20,26 @@ final class ConnectionManager: ObservableObject {
     init(
         receiver: MacLogReceiver? = nil,
         remoteLoggerServer: PulseRemoteLoggerServer? = nil,
+        networkBlocklist: NetworkRequestBlocklist? = nil,
         pulseInjector: PulseStoreInjector? = nil
     ) {
+        let resolvedBlocklist = networkBlocklist ?? NetworkRequestBlocklist()
+        self.networkBlocklist = resolvedBlocklist
         self.receiver = receiver ?? MacLogReceiver()
         self.remoteLoggerServer = remoteLoggerServer ?? PulseRemoteLoggerServer()
-        self.pulseInjector = pulseInjector ?? PulseStoreInjector()
+        self.pulseInjector = pulseInjector ?? PulseStoreInjector(blocklist: resolvedBlocklist)
         bindReceiver()
         bindRemoteLoggerServer()
     }
     #else
-    init() {}
+    init(networkBlocklist: NetworkRequestBlocklist = NetworkRequestBlocklist()) {
+        self.networkBlocklist = networkBlocklist
+    }
     #endif
 }
 
 #if os(macOS)
-private extension ConnectionManager {
+extension ConnectionManager {
     func bindReceiver() {
         receiver.onPeerStateChange = { [weak self] event in
             self?.handlePeerStateChange(event)
@@ -174,6 +180,20 @@ private extension ConnectionManager {
 
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
+    }
+
+    func clearStoredRecords() {
+        latestReceivedPayload = nil
+        lastPacketDateByDeviceID.removeAll()
+        pulseInjector.clearAllRecords()
+
+        for index in devices.indices {
+            devices[index].transferRateKBps = 0
+            devices[index].connectionHistory.removeAll()
+        }
+
+        refreshConnectedDeviceNames()
+        sortDevices()
     }
 }
 #endif
