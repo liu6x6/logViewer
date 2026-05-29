@@ -5,6 +5,7 @@ struct LogPanelView: View {
 
     let device: DeviceModel?
     @Binding var selectedCategory: LogCategory
+    @Binding var selectedConsoleSelection: PulseConsoleSelection?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,7 +51,11 @@ struct LogPanelView: View {
     @ViewBuilder
     private func console(for category: LogCategory) -> some View {
         #if os(macOS)
-        PulseConsoleHostView(injector: connectionManager.pulseInjector, category: category)
+        PulseConsoleHostView(
+            injector: connectionManager.pulseInjector,
+            category: category,
+            selection: $selectedConsoleSelection
+        )
         #else
         Text("Pulse Console is only available on macOS in this project.")
             .font(.caption)

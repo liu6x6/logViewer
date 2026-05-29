@@ -9,16 +9,23 @@ final class ConnectionManager: ObservableObject {
 
     #if os(macOS)
     private let receiver: MacLogReceiver
+    private let remoteLoggerServer: PulseRemoteLoggerServer
     let pulseInjector: PulseStoreInjector
     #endif
 
     private var lastPacketDateByDeviceID: [DeviceModel.ID: Date] = [:]
 
     #if os(macOS)
-    init(receiver: MacLogReceiver? = nil, pulseInjector: PulseStoreInjector? = nil) {
+    init(
+        receiver: MacLogReceiver? = nil,
+        remoteLoggerServer: PulseRemoteLoggerServer? = nil,
+        pulseInjector: PulseStoreInjector? = nil
+    ) {
         self.receiver = receiver ?? MacLogReceiver()
+        self.remoteLoggerServer = remoteLoggerServer ?? PulseRemoteLoggerServer()
         self.pulseInjector = pulseInjector ?? PulseStoreInjector()
         bindReceiver()
+        bindRemoteLoggerServer()
     }
     #else
     init() {}
@@ -34,6 +41,16 @@ private extension ConnectionManager {
 
         receiver.onPacketReceived = { [weak self] packet in
             self?.handleReceivedPacket(packet)
+        }
+    }
+
+    func bindRemoteLoggerServer() {
+        remoteLoggerServer.onPeerStateChange = { [weak self] event in
+            self?.handleRemoteLoggerPeerStateChange(event)
+        }
+
+        remoteLoggerServer.onEventReceived = { [weak self] event in
+            self?.handleRemoteLoggerEvent(event)
         }
     }
 
@@ -73,6 +90,50 @@ private extension ConnectionManager {
         lastPacketDateByDeviceID[packet.peerID] = packet.receivedAt
         latestReceivedPayload = packet.payloadPreview
         pulseInjector.injectReceivedPacket(packet)
+
+        refreshConnectedDeviceNames()
+        sortDevices()
+    }
+
+    func handleRemoteLoggerPeerStateChange(_ event: PulseRemoteLoggerPeerStateEvent) {
+        let index = ensureDevice(id: event.id, displayName: event.displayName)
+        let wasConnected = devices[index].status == .connected
+        let connectionLabel = event.appName.map { "Pulse RemoteLogger · \($0)" } ?? "Pulse RemoteLogger"
+
+        switch event.state {
+        case .connected:
+            devices[index].status = .connected
+            if !wasConnected {
+                devices[index].appendHistory(note: "Connected via \(connectionLabel)", timestamp: event.occurredAt)
+            }
+        case .notConnected:
+            devices[index].status = .disconnected
+            devices[index].transferRateKBps = 0
+            lastPacketDateByDeviceID.removeValue(forKey: event.id)
+
+            if wasConnected {
+                devices[index].appendHistory(note: "\(connectionLabel) disconnected", timestamp: event.occurredAt)
+            }
+        }
+
+        refreshConnectedDeviceNames()
+        sortDevices()
+    }
+
+    func handleRemoteLoggerEvent(_ event: PulseRemoteLoggerReceivedEvent) {
+        let index = ensureDevice(id: event.peerID, displayName: event.displayName)
+        let previousPacketDate = lastPacketDateByDeviceID[event.peerID]
+
+        devices[index].status = .connected
+        devices[index].transferRateKBps = transferRate(
+            for: event.byteCount,
+            previousPacketDate: previousPacketDate,
+            currentDate: event.receivedAt
+        )
+
+        lastPacketDateByDeviceID[event.peerID] = event.receivedAt
+        latestReceivedPayload = event.payloadPreview
+        pulseInjector.injectRemoteLoggerEvent(event.storeEvent, peerDisplayName: event.displayName)
 
         refreshConnectedDeviceNames()
         sortDevices()

@@ -1,4 +1,5 @@
 #if os(macOS) && canImport(Pulse)
+import CoreData
 import Foundation
 import Pulse
 
@@ -23,6 +24,7 @@ final class PulseStoreInjector {
 
         do {
             self.store = try LoggerStore(storeURL: storeURL, options: options)
+            self.store.viewContext.automaticallyMergesChangesFromParent = true
         } catch {
             fatalError("Failed to initialize Pulse LoggerStore: \(error.localizedDescription)")
         }
@@ -46,6 +48,17 @@ final class PulseStoreInjector {
             injectLogMessage(payload, envelope: packet, peerDisplayName: peerDisplayName)
         case .network(let packet, let payload):
             injectNetworkSummary(payload, envelope: packet, peerDisplayName: peerDisplayName)
+        }
+    }
+
+    func injectRemoteLoggerEvent(_ event: PulseRemoteLoggerStoreEvent, peerDisplayName: String) {
+        switch event {
+        case .message(let message):
+            injectRemoteLoggerMessage(message, peerDisplayName: peerDisplayName)
+        case .networkTaskCreated, .networkTaskProgressUpdated:
+            break
+        case .networkTaskCompleted(let task):
+            injectRemoteLoggerNetworkTask(task, peerDisplayName: peerDisplayName)
         }
     }
 
@@ -105,8 +118,71 @@ final class PulseStoreInjector {
         )
     }
 
+    func injectRemoteLoggerMessage(
+        _ event: LoggerStore.Event.MessageCreated,
+        peerDisplayName: String
+    ) {
+        store.storeMessage(
+            createdAt: event.createdAt,
+            label: makeMessageLabel(category: event.label, peerDisplayName: peerDisplayName),
+            level: event.level,
+            message: event.message,
+            metadata: makeMetadataValues(from: event.metadata),
+            file: event.file,
+            function: event.function,
+            line: event.line
+        )
+    }
+
+    func injectRemoteLoggerNetworkTask(
+        _ event: LoggerStore.Event.NetworkTaskCompleted,
+        peerDisplayName: String
+    ) {
+        guard let url = event.originalRequest.url else {
+            injectTransportFailure(
+                message: "Dropped Pulse RemoteLogger task with missing URL from \(peerDisplayName)",
+                timestamp: event.createdAt
+            )
+            return
+        }
+
+        var request = URLRequest(
+            url: url,
+            cachePolicy: event.originalRequest.cachePolicy,
+            timeoutInterval: max(event.originalRequest.timeout, 0.1)
+        )
+        request.httpMethod = event.originalRequest.httpMethod
+        request.allHTTPHeaderFields = event.originalRequest.headers
+        request.httpBody = event.requestBody
+        request.allowsCellularAccess = event.originalRequest.options.contains(.allowsCellularAccess)
+        request.allowsExpensiveNetworkAccess = event.originalRequest.options.contains(.allowsExpensiveNetworkAccess)
+        request.allowsConstrainedNetworkAccess = event.originalRequest.options.contains(.allowsConstrainedNetworkAccess)
+        request.httpShouldHandleCookies = event.originalRequest.options.contains(.httpShouldHandleCookies)
+
+        let response = makeHTTPResponse(for: event.response, requestURL: url)
+        let error = event.error.map(makeRemoteResponseError)
+
+        store.storeRequest(
+            request,
+            response: response,
+            error: error,
+            data: event.responseBody,
+            metrics: nil,
+            label: makeMessageLabel(category: event.label ?? "network", peerDisplayName: peerDisplayName),
+            taskDescription: makeRemoteTaskDescription(for: event)
+        )
+    }
+
     var storeDescription: String {
         "\(storeLocation.rawValue) · \(storeURL.lastPathComponent)"
+    }
+
+    func messageEntity(for objectID: NSManagedObjectID) -> LoggerMessageEntity? {
+        try? store.viewContext.existingObject(with: objectID) as? LoggerMessageEntity
+    }
+
+    func networkTaskEntity(for objectID: NSManagedObjectID) -> NetworkTaskEntity? {
+        try? store.viewContext.existingObject(with: objectID) as? NetworkTaskEntity
     }
 
     private func injectTransportFailure(message: String, timestamp: Date) {
@@ -133,6 +209,52 @@ final class PulseStoreInjector {
     private func makeTaskDescription(remoteTimestamp: TimeInterval) -> String {
         let date = Date(timeIntervalSince1970: remoteTimestamp)
         return "Remote packet @ \(date.formatted(.dateTime.year().month().day().hour().minute().second()))"
+    }
+
+    private func makeRemoteTaskDescription(for event: LoggerStore.Event.NetworkTaskCompleted) -> String {
+        let timestamp = event.createdAt.formatted(.dateTime.year().month().day().hour().minute().second())
+        if let originalDescription = event.taskDescription, !originalDescription.isEmpty {
+            return "\(originalDescription) · RemoteLogger @ \(timestamp)"
+        }
+        return "Pulse RemoteLogger @ \(timestamp)"
+    }
+
+    private func makeMetadataValues(from metadata: [String: String]?) -> [String: LoggerStore.MetadataValue]? {
+        guard let metadata, !metadata.isEmpty else {
+            return nil
+        }
+        return metadata.mapValues(LoggerStore.MetadataValue.string)
+    }
+
+    private func makeHTTPResponse(
+        for response: NetworkLogger.Response?,
+        requestURL: URL
+    ) -> HTTPURLResponse? {
+        guard let response else {
+            return nil
+        }
+
+        return HTTPURLResponse(
+            url: requestURL,
+            statusCode: sanitizeStatusCode(response.statusCode ?? 200),
+            httpVersion: "HTTP/1.1",
+            headerFields: response.headers
+        )
+    }
+
+    private func makeRemoteResponseError(_ error: NetworkLogger.ResponseError) -> NSError {
+        if let underlyingError = error.error as NSError? {
+            return underlyingError
+        }
+
+        return NSError(
+            domain: error.domain,
+            code: error.code,
+            userInfo: [
+                NSLocalizedDescriptionKey: error.debugDescription,
+                NSDebugDescriptionErrorKey: error.debugDescription
+            ]
+        )
     }
 
     private func mapLevel(_ level: LogMessageLevel) -> LoggerStore.Level {
@@ -196,5 +318,9 @@ final class PulseStoreInjector {
     var storeDescription: String {
         "Pulse not linked"
     }
+
+    func messageEntity(for objectID: Any) -> Any? { nil }
+
+    func networkTaskEntity(for objectID: Any) -> Any? { nil }
 }
 #endif

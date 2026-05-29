@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var selectedDeviceID: DeviceModel.ID?
     @State private var selectedCategory: LogCategory = .messages
+    @State private var selectedConsoleSelection: PulseConsoleSelection?
 
     private var selectedDevice: DeviceModel? {
         connectionManager.devices.first { $0.id == selectedDeviceID }
@@ -16,12 +17,18 @@ struct ContentView: View {
             DeviceSidebarView(selectedDeviceID: $selectedDeviceID)
                 .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 360)
         } content: {
-            LogPanelView(device: selectedDevice, selectedCategory: $selectedCategory)
+            LogPanelView(
+                device: selectedDevice,
+                selectedCategory: $selectedCategory,
+                selectedConsoleSelection: $selectedConsoleSelection
+            )
                 .navigationSplitViewColumnWidth(min: 420, ideal: 620)
         } detail: {
             LogDetailView(
                 device: selectedDevice,
-                latestPayloadPreview: connectionManager.latestReceivedPayload
+                latestPayloadPreview: connectionManager.latestReceivedPayload,
+                selectedConsoleSelection: selectedConsoleSelection,
+                injector: connectionManager.pulseInjector
             )
                 .navigationSplitViewColumnWidth(min: 420, ideal: 540)
         }
