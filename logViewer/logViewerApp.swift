@@ -9,9 +9,13 @@ import SwiftUI
 
 @main
 struct logViewerApp: App {
+    @StateObject private var connectionManager = ConnectionManager()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(connectionManager)
+                .frame(minWidth: 1280, minHeight: 820)
         }
     }
 }
