@@ -1,5 +1,6 @@
 import SwiftUI
 #if os(macOS) && canImport(Pulse)
+import AppKit
 import Pulse
 #endif
 
@@ -45,7 +46,10 @@ struct LogDetailView: View {
                     .tabItem { Text(DetailTab.request.rawValue) }
                     .tag(DetailTab.request)
 
-                detailPane(text: responseTabText)
+                detailPane(
+                    text: responseTabText,
+                    actions: { responseActions }
+                )
                     .tabItem { Text(DetailTab.response.rawValue) }
                     .tag(DetailTab.response)
 
@@ -59,16 +63,28 @@ struct LogDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private func detailPane<Actions: View>(text: String, @ViewBuilder actions: () -> Actions) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            actions()
+
+            ScrollView {
+                Text(text)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(.thinMaterial)
+                    )
+            }
+        }
+    }
+
     private func detailPane(text: String) -> some View {
-        ScrollView {
-            Text(text)
-                .font(.system(.body, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(.thinMaterial)
-                )
+        detailPane(text: text) {
+            EmptyView()
         }
     }
 }
@@ -139,7 +155,7 @@ private extension LogDetailView {
             \(task.responseHeadersText)
 
             Response Body
-            \(task.responseBodyPreviewText)
+            \(task.responseBodyText)
             """
         case .none:
             return "网络请求的 Header、状态码和 Response Body 会在你选中中栏条目后显示在这里。"
@@ -185,6 +201,34 @@ private extension LogDetailView {
     }
 
     #if os(macOS) && canImport(Pulse)
+    @ViewBuilder
+    var responseActions: some View {
+        if let responseActionText {
+            HStack(spacing: 10) {
+                Button {
+                    copyResponseText(responseActionText)
+                } label: {
+                    Label("Copy Response", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+
+                ShareLink(item: responseActionText) {
+                    Label("Share Response", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.bordered)
+            }
+        } else {
+            EmptyView()
+        }
+    }
+
+    var responseActionText: String? {
+        guard case .network(let task) = selectedPayload else {
+            return nil
+        }
+        return task.shareableResponseText
+    }
+
     var selectedPayload: InspectorPayload? {
         guard let selectedConsoleSelection else {
             return nil
@@ -196,6 +240,11 @@ private extension LogDetailView {
         case .network(let objectID):
             return injector.networkTaskEntity(for: objectID).map(InspectorPayload.network)
         }
+    }
+
+    func copyResponseText(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
     #endif
 }
