@@ -3,10 +3,10 @@ import Combine
 import Foundation
 @preconcurrency import MultipeerConnectivity
 
-enum IOSLogSenderError: LocalizedError {
+public enum IOSLogSenderError: LocalizedError {
     case noConnectedReceiver
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .noConnectedReceiver:
             return "No connected Mac receiver is available."
@@ -16,17 +16,18 @@ enum IOSLogSenderError: LocalizedError {
 
 /// Advertises the iPhone on the local Wi-Fi network and accepts Mac connection invitations automatically.
 @MainActor
-final class IOSLogSender: NSObject, ObservableObject {
-    @Published private(set) var connectedPeerDisplayNames: [String] = []
-    @Published private(set) var isAdvertising = false
+public final class IOSLogSender: NSObject, ObservableObject {
+    @Published public private(set) var connectedPeerDisplayNames: [String] = []
+    @Published public private(set) var isAdvertising = false
 
     private let localPeerID: MCPeerID
     private let session: MCSession
     private let advertiser: MCNearbyServiceAdvertiser
     private let packetEncoder: LogPacketEncoder
 
-    init(displayName: String = LogViewerMultipeerConfiguration.defaultDisplayName) {
-        let localPeerID = LogViewerMultipeerConfiguration.makePeerID(displayName: displayName)
+    public init(displayName: String? = nil) {
+        let resolvedDisplayName = displayName ?? LogViewerMultipeerConfiguration.defaultDisplayName
+        let localPeerID = LogViewerMultipeerConfiguration.makePeerID(displayName: resolvedDisplayName)
 
         self.localPeerID = localPeerID
         self.session = MCSession(
@@ -48,7 +49,7 @@ final class IOSLogSender: NSObject, ObservableObject {
         startAdvertising()
     }
 
-    func startAdvertising() {
+    public func startAdvertising() {
         guard !isAdvertising else {
             return
         }
@@ -57,13 +58,13 @@ final class IOSLogSender: NSObject, ObservableObject {
         isAdvertising = true
     }
 
-    func stopAdvertising() {
+    public func stopAdvertising() {
         advertiser.stopAdvertisingPeer()
         isAdvertising = false
     }
 
     /// Public sending entry used later by the log streaming pipeline.
-    func sendPacket(data: Data) throws {
+    public func sendPacket(data: Data) throws {
         guard !session.connectedPeers.isEmpty else {
             throw IOSLogSenderError.noConnectedReceiver
         }
@@ -71,7 +72,7 @@ final class IOSLogSender: NSObject, ObservableObject {
         try session.send(data, toPeers: session.connectedPeers, with: .reliable)
     }
 
-    func sendLogMessage(
+    public func sendLogMessage(
         message: String,
         level: LogMessageLevel,
         category: String,
@@ -82,7 +83,7 @@ final class IOSLogSender: NSObject, ObservableObject {
         try sendPacket(data: packetData)
     }
 
-    func sendNetworkSummary(
+    public func sendNetworkSummary(
         url: URL,
         method: String,
         requestHeaders: [String: String],
@@ -102,10 +103,16 @@ final class IOSLogSender: NSObject, ObservableObject {
         let packetData = try packetEncoder.encodeNetworkSummary(payload, timestamp: timestamp)
         try sendPacket(data: packetData)
     }
+
+    private func refreshConnectedPeers(from session: MCSession) {
+        connectedPeerDisplayNames = session.connectedPeers
+            .map(\.displayName)
+            .sorted()
+    }
 }
 
-extension IOSLogSender: MCNearbyServiceAdvertiserDelegate {
-    func advertiser(
+extension IOSLogSender: @preconcurrency MCNearbyServiceAdvertiserDelegate {
+    public func advertiser(
         _ advertiser: MCNearbyServiceAdvertiser,
         didReceiveInvitationFromPeer peerID: MCPeerID,
         withContext context: Data?,
@@ -114,24 +121,22 @@ extension IOSLogSender: MCNearbyServiceAdvertiserDelegate {
         invitationHandler(true, session)
     }
 
-    func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: any Error) {
+    public func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: any Error) {
         isAdvertising = false
         print("[logViewer][Advertiser] failed to start advertising: \(error.localizedDescription)")
     }
 }
 
-extension IOSLogSender: MCSessionDelegate {
-    func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        connectedPeerDisplayNames = session.connectedPeers
-            .map(\.displayName)
-            .sorted()
+extension IOSLogSender: @preconcurrency MCSessionDelegate {
+    public func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
+        refreshConnectedPeers(from: session)
     }
 
-    func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
+    public func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
         // The iPhone sender does not currently expect inbound packets.
     }
 
-    func session(
+    public func session(
         _ session: MCSession,
         didReceive stream: InputStream,
         withName streamName: String,
@@ -140,7 +145,7 @@ extension IOSLogSender: MCSessionDelegate {
         // The current transport only uses Data packets.
     }
 
-    func session(
+    public func session(
         _ session: MCSession,
         didStartReceivingResourceWithName resourceName: String,
         fromPeer peerID: MCPeerID,
@@ -149,7 +154,7 @@ extension IOSLogSender: MCSessionDelegate {
         // Resources are not used yet, but the delegate requirement must still be satisfied.
     }
 
-    func session(
+    public func session(
         _ session: MCSession,
         didFinishReceivingResourceWithName resourceName: String,
         fromPeer peerID: MCPeerID,
@@ -161,7 +166,7 @@ extension IOSLogSender: MCSessionDelegate {
         }
     }
 
-    func session(
+    public func session(
         _ session: MCSession,
         didReceiveCertificate certificate: [Any]?,
         fromPeer peerID: MCPeerID,

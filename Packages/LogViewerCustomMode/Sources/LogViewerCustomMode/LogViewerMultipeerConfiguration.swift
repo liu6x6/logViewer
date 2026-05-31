@@ -5,12 +5,12 @@ import Foundation
 import UIKit
 #endif
 
-enum LogViewerPeerRole: String, Sendable {
+public enum LogViewerPeerRole: String, Sendable {
     case receiver
     case sender
 }
 
-enum LogViewerPeerSessionState: String, Sendable {
+public enum LogViewerPeerSessionState: String, Sendable {
     case connecting
     case connected
     case notConnected
@@ -29,20 +29,20 @@ enum LogViewerPeerSessionState: String, Sendable {
     }
 }
 
-struct LogViewerPeerStateEvent: Identifiable, Hashable, Sendable {
-    let id: String
-    let displayName: String
-    let role: LogViewerPeerRole
-    let state: LogViewerPeerSessionState
-    let occurredAt: Date
+public struct LogViewerPeerStateEvent: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let role: LogViewerPeerRole
+    public let state: LogViewerPeerSessionState
+    public let occurredAt: Date
 }
 
-struct LogViewerReceivedPacket: Identifiable, Hashable, Sendable {
-    let id: String
-    let peerID: String
-    let displayName: String
-    let data: Data
-    let receivedAt: Date
+public struct LogViewerReceivedPacket: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let peerID: String
+    public let displayName: String
+    public let data: Data
+    public let receivedAt: Date
 
     init(peerID: String, displayName: String, data: Data, receivedAt: Date = .now) {
         self.id = UUID().uuidString
@@ -52,39 +52,40 @@ struct LogViewerReceivedPacket: Identifiable, Hashable, Sendable {
         self.receivedAt = receivedAt
     }
 
-    nonisolated var payloadPreview: String {
+    public nonisolated var payloadPreview: String {
         data.logViewerPreview()
     }
 }
 
-enum LogViewerMultipeerConfiguration {
-    nonisolated static let serviceType = "logviewer-pipe"
-    nonisolated static let bonjourService = "_\(serviceType)._tcp"
-    nonisolated static let invitationTimeout: TimeInterval = 12
+public enum LogViewerMultipeerConfiguration {
+    public nonisolated static let serviceType = "logviewer-pipe"
+    public nonisolated static let bonjourService = "_\(serviceType)._tcp"
+    public nonisolated static let invitationTimeout: TimeInterval = 12
 
-    nonisolated static let roleKey = "role"
-    nonisolated static let platformKey = "platform"
+    public nonisolated static let roleKey = "role"
+    public nonisolated static let platformKey = "platform"
 
-    nonisolated static func makePeerID(displayName: String = defaultDisplayName) -> MCPeerID {
+    public nonisolated static func makePeerID(displayName: String) -> MCPeerID {
         MCPeerID(displayName: sanitizedDisplayName(displayName))
     }
 
-    nonisolated static func discoveryInfo(for role: LogViewerPeerRole) -> [String: String] {
+    public nonisolated static func discoveryInfo(for role: LogViewerPeerRole) -> [String: String] {
         [
             roleKey: role.rawValue,
             platformKey: currentPlatform
         ]
     }
 
-    nonisolated static let defaultDisplayName: String = {
+    @MainActor
+    public static var defaultDisplayName: String {
         #if os(iOS)
-        return UIDevice.current.name
+        UIDevice.current.name
         #elseif os(macOS)
-        return Host.current().localizedName ?? "Mac Receiver"
+        Host.current().localizedName ?? "Mac Receiver"
         #else
-        return "logViewer"
+        "logViewer"
         #endif
-    }()
+    }
 
     private nonisolated static let currentPlatform: String = {
         #if os(iOS)

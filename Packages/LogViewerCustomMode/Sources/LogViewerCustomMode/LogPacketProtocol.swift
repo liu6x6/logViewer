@@ -1,16 +1,16 @@
 import Foundation
 
-nonisolated enum LogPacketType: Int, Codable, CaseIterable, Sendable {
+public nonisolated enum LogPacketType: Int, Codable, CaseIterable, Sendable {
     case message = 1
     case networkSummary = 2
 }
 
-nonisolated enum LogMessageLevel: Int, Codable, CaseIterable, Sendable {
+public nonisolated enum LogMessageLevel: Int, Codable, CaseIterable, Sendable {
     case debug = 0
     case info = 1
     case error = 2
 
-    nonisolated var title: String {
+    public nonisolated var title: String {
         switch self {
         case .debug:
             return "Debug"
@@ -24,15 +24,15 @@ nonisolated enum LogMessageLevel: Int, Codable, CaseIterable, Sendable {
 
 /// Shared envelope transported over MultipeerConnectivity.
 /// The payload is encoded separately to keep the framing stable across packet kinds.
-nonisolated struct LogPacket: Codable, Hashable, Sendable {
-    static let currentVersion = "1.0"
+public nonisolated struct LogPacket: Codable, Hashable, Sendable {
+    public static let currentVersion = "1.0"
 
-    let version: String
-    let timestamp: TimeInterval
-    let packetType: Int
-    let payload: Data
+    public let version: String
+    public let timestamp: TimeInterval
+    public let packetType: Int
+    public let payload: Data
 
-    init(
+    public init(
         version: String = LogPacket.currentVersion,
         timestamp: TimeInterval = Date().timeIntervalSince1970,
         packetType: LogPacketType,
@@ -44,7 +44,7 @@ nonisolated struct LogPacket: Codable, Hashable, Sendable {
         self.payload = payload
     }
 
-    var type: LogPacketType? {
+    public var type: LogPacketType? {
         LogPacketType(rawValue: packetType)
     }
 
@@ -56,12 +56,12 @@ nonisolated struct LogPacket: Codable, Hashable, Sendable {
     }
 }
 
-nonisolated struct LogMessagePayload: Codable, Hashable, Sendable {
-    let message: String
-    let level: LogMessageLevel
-    let category: String
+public nonisolated struct LogMessagePayload: Codable, Hashable, Sendable {
+    public let message: String
+    public let level: LogMessageLevel
+    public let category: String
 
-    init(message: String, level: LogMessageLevel, category: String) {
+    public init(message: String, level: LogMessageLevel, category: String) {
         self.message = message
         self.level = level
         self.category = category
@@ -74,15 +74,15 @@ nonisolated struct LogMessagePayload: Codable, Hashable, Sendable {
     }
 }
 
-nonisolated struct LogNetworkPayload: Codable, Hashable, Sendable {
-    let url: String
-    let method: String
-    let requestHeaders: [String: String]
-    let responseHeaders: [String: String]
-    let statusCode: Int
-    let responseBody: Data
+public nonisolated struct LogNetworkPayload: Codable, Hashable, Sendable {
+    public let url: String
+    public let method: String
+    public let requestHeaders: [String: String]
+    public let responseHeaders: [String: String]
+    public let statusCode: Int
+    public let responseBody: Data
 
-    init(
+    public init(
         url: String,
         method: String,
         requestHeaders: [String: String],
@@ -98,7 +98,7 @@ nonisolated struct LogNetworkPayload: Codable, Hashable, Sendable {
         self.responseBody = responseBody
     }
 
-    init(
+    public init(
         url: URL,
         method: String,
         requestHeaders: [String: String],
@@ -126,7 +126,7 @@ nonisolated struct LogNetworkPayload: Codable, Hashable, Sendable {
     }
 }
 
-nonisolated enum DecodedLogPacket: Sendable {
+public nonisolated enum DecodedLogPacket: Sendable {
     case message(packet: LogPacket, payload: LogMessagePayload)
     case network(packet: LogPacket, payload: LogNetworkPayload)
 }
@@ -140,7 +140,7 @@ extension Data {
         let prefixData = prefix(limit)
 
         if let preview = String(data: prefixData, encoding: .utf8), !preview.isEmpty {
-            return count > limit ? "\(preview)…" : preview
+            return count > limit ? "\(preview)..." : preview
         }
 
         return "<binary \(count) bytes>"

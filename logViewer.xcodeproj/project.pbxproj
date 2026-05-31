@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CE49A1012FD4A90000817FFE /* LogViewerCustomMode in Frameworks */ = {isa = PBXBuildFile; productRef = CE49A1002FD4A90000817FFE /* LogViewerCustomMode */; };
 		CE4962BF2FC95AB600817FFE /* Network.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE4962BE2FC95AB600817FFE /* Network.framework */; };
 		CE4984D82FC964E700817FFE /* Pulse in Frameworks */ = {isa = PBXBuildFile; productRef = CE4984D72FC964E700817FFE /* Pulse */; };
 		CE4984DA2FC964E700817FFE /* PulseProxy in Frameworks */ = {isa = PBXBuildFile; productRef = CE4984D92FC964E700817FFE /* PulseProxy */; };
@@ -44,6 +45,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CE49A1012FD4A90000817FFE /* LogViewerCustomMode in Frameworks */,
 				CE4984DA2FC964E700817FFE /* PulseProxy in Frameworks */,
 				CE4984D82FC964E700817FFE /* Pulse in Frameworks */,
 				CE4984DC2FC964E700817FFE /* PulseUI in Frameworks */,
@@ -99,6 +101,7 @@
 			);
 			name = logViewer;
 			packageProductDependencies = (
+				CE49A1002FD4A90000817FFE /* LogViewerCustomMode */,
 				CE4984D72FC964E700817FFE /* Pulse */,
 				CE4984D92FC964E700817FFE /* PulseProxy */,
 				CE4984DB2FC964E700817FFE /* PulseUI */,
@@ -132,6 +135,7 @@
 			mainGroup = CE4962942FC959AE00817FFE;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				CE49A0FF2FD4A90000817FFE /* XCLocalSwiftPackageReference "Packages/LogViewerCustomMode" */,
 				CE4984D62FC964E700817FFE /* XCRemoteSwiftPackageReference "Pulse" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -402,6 +406,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		CE49A0FF2FD4A90000817FFE /* XCLocalSwiftPackageReference "Packages/LogViewerCustomMode" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/LogViewerCustomMode;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		CE4984D62FC964E700817FFE /* XCRemoteSwiftPackageReference "Pulse" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -414,6 +425,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		CE49A1002FD4A90000817FFE /* LogViewerCustomMode */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE49A0FF2FD4A90000817FFE /* XCLocalSwiftPackageReference "Packages/LogViewerCustomMode" */;
+			productName = LogViewerCustomMode;
+		};
 		CE4984D72FC964E700817FFE /* Pulse */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CE4984D62FC964E700817FFE /* XCRemoteSwiftPackageReference "Pulse" */;

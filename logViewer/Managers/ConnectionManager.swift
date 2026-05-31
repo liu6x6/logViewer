@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LogViewerCustomMode
 
 @MainActor
 final class ConnectionManager: ObservableObject {

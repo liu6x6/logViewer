@@ -1,11 +1,11 @@
 import Foundation
 
-nonisolated enum LogPacketCodingError: LocalizedError {
+public nonisolated enum LogPacketCodingError: LocalizedError {
     case unsupportedPacketType(Int)
     case packetTypeMismatch(expected: LogPacketType, actual: Int)
     case unsupportedVersion(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .unsupportedPacketType(let rawValue):
             return "Unsupported log packet type: \(rawValue)"
@@ -18,13 +18,13 @@ nonisolated enum LogPacketCodingError: LocalizedError {
 }
 
 /// Binary PropertyList keeps payloads compact and preserves nested `Data` without base64 expansion.
-nonisolated final class LogPacketEncoder {
-    let protocolVersion: String
+public nonisolated final class LogPacketEncoder {
+    public let protocolVersion: String
 
     private let envelopeEncoder: PropertyListEncoder
     private let payloadEncoder: PropertyListEncoder
 
-    init(protocolVersion: String = LogPacket.currentVersion) {
+    public init(protocolVersion: String = LogPacket.currentVersion) {
         self.protocolVersion = protocolVersion
 
         let envelopeEncoder = PropertyListEncoder()
@@ -36,21 +36,21 @@ nonisolated final class LogPacketEncoder {
         self.payloadEncoder = payloadEncoder
     }
 
-    func encodeLogMessage(
+    public func encodeLogMessage(
         _ payload: LogMessagePayload,
         timestamp: TimeInterval = Date().timeIntervalSince1970
     ) throws -> Data {
         try encodePayload(payload, packetType: .message, timestamp: timestamp)
     }
 
-    func encodeNetworkSummary(
+    public func encodeNetworkSummary(
         _ payload: LogNetworkPayload,
         timestamp: TimeInterval = Date().timeIntervalSince1970
     ) throws -> Data {
         try encodePayload(payload, packetType: .networkSummary, timestamp: timestamp)
     }
 
-    func encodePayload<Payload: Encodable>(
+    public func encodePayload<Payload: Encodable>(
         _ payload: Payload,
         packetType: LogPacketType,
         timestamp: TimeInterval = Date().timeIntervalSince1970
@@ -59,7 +59,7 @@ nonisolated final class LogPacketEncoder {
         return try envelopeEncoder.encode(packet)
     }
 
-    func makePacket<Payload: Encodable>(
+    public func makePacket<Payload: Encodable>(
         _ payload: Payload,
         packetType: LogPacketType,
         timestamp: TimeInterval = Date().timeIntervalSince1970
@@ -75,19 +75,19 @@ nonisolated final class LogPacketEncoder {
     }
 }
 
-nonisolated final class LogPacketDecoder {
-    let supportedVersion: String?
+public nonisolated final class LogPacketDecoder {
+    public let supportedVersion: String?
 
     private let envelopeDecoder: PropertyListDecoder
     private let payloadDecoder: PropertyListDecoder
 
-    init(supportedVersion: String? = LogPacket.currentVersion) {
+    public init(supportedVersion: String? = LogPacket.currentVersion) {
         self.supportedVersion = supportedVersion
         self.envelopeDecoder = PropertyListDecoder()
         self.payloadDecoder = PropertyListDecoder()
     }
 
-    func decodePacket(from data: Data) throws -> LogPacket {
+    public func decodePacket(from data: Data) throws -> LogPacket {
         let packet = try envelopeDecoder.decode(LogPacket.self, from: data)
 
         if let supportedVersion, packet.version != supportedVersion {
@@ -97,15 +97,15 @@ nonisolated final class LogPacketDecoder {
         return packet
     }
 
-    func decodeLogMessage(from packet: LogPacket) throws -> LogMessagePayload {
+    public func decodeLogMessage(from packet: LogPacket) throws -> LogMessagePayload {
         try decodePayload(LogMessagePayload.self, from: packet, expectedType: .message)
     }
 
-    func decodeNetworkSummary(from packet: LogPacket) throws -> LogNetworkPayload {
+    public func decodeNetworkSummary(from packet: LogPacket) throws -> LogNetworkPayload {
         try decodePayload(LogNetworkPayload.self, from: packet, expectedType: .networkSummary)
     }
 
-    func decodePayload<Payload: Decodable>(
+    public func decodePayload<Payload: Decodable>(
         _ payloadType: Payload.Type,
         from packet: LogPacket,
         expectedType: LogPacketType? = nil
@@ -117,7 +117,7 @@ nonisolated final class LogPacketDecoder {
         return try payloadDecoder.decode(payloadType, from: packet.payload)
     }
 
-    func decodeEnvelopeAndPayload(from data: Data) throws -> DecodedLogPacket {
+    public func decodeEnvelopeAndPayload(from data: Data) throws -> DecodedLogPacket {
         let packet = try decodePacket(from: data)
 
         guard let packetType = packet.type else {

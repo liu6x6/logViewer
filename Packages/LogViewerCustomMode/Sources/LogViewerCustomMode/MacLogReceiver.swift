@@ -5,11 +5,11 @@ import Foundation
 
 /// Auto-discovers nearby iPhone senders and forwards connection/data events to the UI state layer.
 @MainActor
-final class MacLogReceiver: NSObject, ObservableObject {
-    @Published private(set) var connectedPeerDisplayNames: [String] = []
+public final class MacLogReceiver: NSObject, ObservableObject {
+    @Published public private(set) var connectedPeerDisplayNames: [String] = []
 
-    var onPeerStateChange: ((LogViewerPeerStateEvent) -> Void)?
-    var onPacketReceived: ((LogViewerReceivedPacket) -> Void)?
+    public var onPeerStateChange: ((LogViewerPeerStateEvent) -> Void)?
+    public var onPacketReceived: ((LogViewerReceivedPacket) -> Void)?
 
     private let localPeerID: MCPeerID
     private let session: MCSession
@@ -17,8 +17,9 @@ final class MacLogReceiver: NSObject, ObservableObject {
 
     private var invitedPeerIDs: Set<String> = []
 
-    init(displayName: String = LogViewerMultipeerConfiguration.defaultDisplayName) {
-        let localPeerID = LogViewerMultipeerConfiguration.makePeerID(displayName: displayName)
+    public init(displayName: String? = nil) {
+        let resolvedDisplayName = displayName ?? LogViewerMultipeerConfiguration.defaultDisplayName
+        let localPeerID = LogViewerMultipeerConfiguration.makePeerID(displayName: resolvedDisplayName)
 
         self.localPeerID = localPeerID
         self.session = MCSession(
@@ -35,7 +36,7 @@ final class MacLogReceiver: NSObject, ObservableObject {
         browser.startBrowsingForPeers()
     }
 
-    func stop() {
+    public func stop() {
         browser.stopBrowsingForPeers()
         session.disconnect()
         invitedPeerIDs.removeAll()
@@ -87,32 +88,42 @@ final class MacLogReceiver: NSObject, ObservableObject {
             )
         )
     }
+
+    private func publishReceivedPacket(_ packet: LogViewerReceivedPacket) {
+        onPacketReceived?(packet)
+    }
 }
 
 extension MacLogReceiver: MCNearbyServiceBrowserDelegate {
-    func browser(
+    nonisolated public func browser(
         _ browser: MCNearbyServiceBrowser,
         foundPeer peerID: MCPeerID,
         withDiscoveryInfo info: [String: String]?
     ) {
-        inviteIfNeeded(peerID: peerID, discoveryInfo: info)
+        Task { @MainActor [weak self] in
+            self?.inviteIfNeeded(peerID: peerID, discoveryInfo: info)
+        }
     }
 
-    func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
-        invitedPeerIDs.remove(peerID.displayName)
+    nonisolated public func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
+        Task { @MainActor [weak self] in
+            self?.invitedPeerIDs.remove(peerID.displayName)
+        }
     }
 
-    func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: any Error) {
+    nonisolated public func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: any Error) {
         print("[logViewer][Browser] failed to start browsing: \(error.localizedDescription)")
     }
 }
 
 extension MacLogReceiver: MCSessionDelegate {
-    func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        publishConnectionState(for: peerID, state: state)
+    nonisolated public func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
+        Task { @MainActor [weak self] in
+            self?.publishConnectionState(for: peerID, state: state)
+        }
     }
 
-    func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
+    nonisolated public func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
         let packet = LogViewerReceivedPacket(
             peerID: peerID.displayName,
             displayName: peerID.displayName,
@@ -123,10 +134,12 @@ extension MacLogReceiver: MCSessionDelegate {
             LogViewerPacketPrinter.printPacket(packet)
         }
 
-        onPacketReceived?(packet)
+        Task { @MainActor [weak self] in
+            self?.publishReceivedPacket(packet)
+        }
     }
 
-    func session(
+    nonisolated public func session(
         _ session: MCSession,
         didReceive stream: InputStream,
         withName streamName: String,
@@ -135,7 +148,7 @@ extension MacLogReceiver: MCSessionDelegate {
         // The current transport only uses Data packets.
     }
 
-    func session(
+    nonisolated public func session(
         _ session: MCSession,
         didStartReceivingResourceWithName resourceName: String,
         fromPeer peerID: MCPeerID,
@@ -144,7 +157,7 @@ extension MacLogReceiver: MCSessionDelegate {
         // Resources are not used yet, but the delegate requirement must still be satisfied.
     }
 
-    func session(
+    nonisolated public func session(
         _ session: MCSession,
         didFinishReceivingResourceWithName resourceName: String,
         fromPeer peerID: MCPeerID,
@@ -156,7 +169,7 @@ extension MacLogReceiver: MCSessionDelegate {
         }
     }
 
-    func session(
+    nonisolated public func session(
         _ session: MCSession,
         didReceiveCertificate certificate: [Any]?,
         fromPeer peerID: MCPeerID,

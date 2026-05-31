@@ -1,3 +1,5 @@
+import LogViewerCustomMode
+
 #if os(macOS) && canImport(Pulse)
 import CoreData
 import Foundation
