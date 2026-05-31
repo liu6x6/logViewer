@@ -57,7 +57,7 @@ struct LogPanelView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 #else
-                Text("日志控制台将显示来自 iOS 端的实时 Messages 与 Network 流。")
+                Text("日志控制台将显示来自已连接设备（iOS / Android）的实时 Messages 与 Network 流。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 #endif
@@ -101,6 +101,7 @@ struct LogPanelView: View {
         #if os(macOS)
         PulseConsoleHostView(
             injector: connectionManager.pulseInjector,
+            device: device,
             category: category,
             selection: $selectedConsoleSelection,
             actionCoordinator: actionCoordinator

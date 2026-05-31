@@ -53,6 +53,7 @@ struct LogDetailView: View {
 
                 HStack(spacing: 10) {
                     DetailChip(title: "Device", value: device?.name ?? "Unknown")
+                    DetailChip(title: "Platform", value: device?.platform.title ?? "Unknown")
                     DetailChip(title: "Status", value: device?.status.title ?? "Unknown")
                     DetailChip(title: "Rate", value: device?.transferRateText ?? "0 KB/s")
                 }

@@ -6,6 +6,7 @@ import Pulse
 
 struct PulseConsoleHostView: View {
     let injector: PulseStoreInjector
+    let device: DeviceModel?
     let category: LogCategory
     @Binding var selection: PulseConsoleSelection?
     @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
@@ -14,10 +15,11 @@ struct PulseConsoleHostView: View {
         Group {
             switch category {
             case .messages:
-                PulseMessagesConsoleView(selection: $selection)
+                PulseMessagesConsoleView(device: device, selection: $selection)
             case .network:
                 PulseNetworkConsoleView(
                     context: injector.store.viewContext,
+                    device: device,
                     blocklist: injector.blocklist,
                     selection: $selection,
                     actionCoordinator: actionCoordinator
@@ -25,25 +27,38 @@ struct PulseConsoleHostView: View {
             }
         }
         .environment(\.managedObjectContext, injector.store.viewContext)
-        .id(category)
+        .id("\(category.rawValue)-\(device?.id ?? "all-devices")")
     }
 }
 
 private struct PulseMessagesConsoleView: View {
-    @FetchRequest(
-        sortDescriptors: [SortDescriptor(\LoggerMessageEntity.createdAt, order: .reverse)],
-        predicate: NSPredicate(format: "task == NULL"),
-        animation: .default
-    )
+    @FetchRequest
     private var messages: FetchedResults<LoggerMessageEntity>
 
+    let device: DeviceModel?
     @Binding var selection: PulseConsoleSelection?
+
+    init(device: DeviceModel?, selection: Binding<PulseConsoleSelection?>) {
+        let basePredicate = NSPredicate(format: "task == NULL")
+        let devicePredicate = PulseStoreInjector.messagePredicate(for: device)
+        let predicate = [basePredicate, devicePredicate]
+            .compactMap { $0 }
+        _messages = FetchRequest(
+            sortDescriptors: [SortDescriptor(\LoggerMessageEntity.createdAt, order: .reverse)],
+            predicate: predicate.count == 1 ? predicate[0] : NSCompoundPredicate(andPredicateWithSubpredicates: predicate),
+            animation: .default
+        )
+        _selection = selection
+        self.device = device
+    }
 
     var body: some View {
         if messages.isEmpty {
             PulseEmptyStateView(
                 title: "No Messages Yet",
-                subtitle: "收到来自 iPhone 的普通日志后，这里会按 Pulse 风格实时追加。"
+                subtitle: device == nil
+                    ? "收到来自已连接设备（iOS / Android）的普通日志后，这里会按 Pulse 风格实时追加。"
+                    : "当前设备还没有消息日志。"
             )
         } else {
             List(messages, selection: $selection) { message in
@@ -51,12 +66,22 @@ private struct PulseMessagesConsoleView: View {
                     .tag(PulseConsoleSelection.message(message.objectID))
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
+            .onChange(of: messages.map(\.objectID)) { _, visibleIDs in
+                guard case let .message(objectID) = selection else {
+                    return
+                }
+
+                if !visibleIDs.contains(objectID) {
+                    selection = nil
+                }
+            }
         }
     }
 }
 
 private struct PulseNetworkConsoleView: View {
     @StateObject private var controller: PulseNetworkQueryController
+    let device: DeviceModel?
     @ObservedObject private var blocklist: NetworkRequestBlocklist
     @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
     @State private var query = PulseNetworkConsoleQuery()
@@ -65,13 +90,19 @@ private struct PulseNetworkConsoleView: View {
 
     init(
         context: NSManagedObjectContext,
+        device: DeviceModel?,
         blocklist: NetworkRequestBlocklist,
         selection: Binding<PulseConsoleSelection?>,
         actionCoordinator: NetworkRequestActionCoordinator
     ) {
         _controller = StateObject(
-            wrappedValue: PulseNetworkQueryController(context: context, blocklist: blocklist.snapshot)
+            wrappedValue: PulseNetworkQueryController(
+                context: context,
+                blocklist: blocklist.snapshot,
+                devicePredicate: PulseStoreInjector.networkPredicate(for: device)
+            )
         )
+        self.device = device
         _blocklist = ObservedObject(wrappedValue: blocklist)
         _actionCoordinator = ObservedObject(wrappedValue: actionCoordinator)
         _selection = selection
@@ -87,7 +118,9 @@ private struct PulseNetworkConsoleView: View {
             if controller.tasks.isEmpty {
                 PulseEmptyStateView(
                     title: "No Network Traffic Yet",
-                    subtitle: "收到远端网络摘要后，这里会显示请求、状态码、头信息与响应体预览。"
+                    subtitle: device == nil
+                        ? "收到远端网络摘要后，这里会显示请求、状态码、头信息与响应体预览。"
+                        : "当前设备还没有网络请求。"
                 )
             } else {
                 List {
@@ -113,10 +146,13 @@ private struct PulseNetworkConsoleView: View {
             }
         }
         .onChange(of: query) { _, newQuery in
-            controller.apply(query: newQuery, blocklist: blocklist.snapshot)
+            controller.apply(query: newQuery, blocklist: blocklist.snapshot, devicePredicate: PulseStoreInjector.networkPredicate(for: device))
         }
         .onChange(of: blocklist.snapshot) { _, snapshot in
-            controller.apply(query: query, blocklist: snapshot)
+            controller.apply(query: query, blocklist: snapshot, devicePredicate: PulseStoreInjector.networkPredicate(for: device))
+        }
+        .onChange(of: device?.id) { _, _ in
+            controller.apply(query: query, blocklist: blocklist.snapshot, devicePredicate: PulseStoreInjector.networkPredicate(for: device))
         }
         .onChange(of: query.grouping) { _, _ in
             expandedSections = Set(groupedSections.map(\.id))
@@ -588,6 +624,7 @@ private struct PulseEmptyStateView: View {
 #else
 struct PulseConsoleHostView: View {
     let injector: PulseStoreInjector
+    let device: DeviceModel?
     let category: LogCategory
     @Binding var selection: PulseConsoleSelection?
     let actionCoordinator: NetworkRequestActionCoordinator

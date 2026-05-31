@@ -56,5 +56,8 @@ struct ContentView: View {
         .onChange(of: selectedConsoleSelection) { _, newValue in
             actionCoordinator.selectedConsoleSelection = newValue
         }
+        .onChange(of: selectedDeviceID) { _, _ in
+            selectedConsoleSelection = nil
+        }
     }
 }

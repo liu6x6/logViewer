@@ -31,7 +31,7 @@ struct DeviceSidebarView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Devices")
                     .font(.title3.weight(.semibold))
-                Text("实时连接的 iOS 设备与历史会话")
+                Text("实时连接的 iOS / Android 设备与历史会话")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -55,7 +55,7 @@ private struct DeviceRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "iphone.gen3")
+                Image(systemName: device.platform.symbolName)
                     .font(.title3)
                     .foregroundStyle(.secondary)
 
@@ -65,6 +65,9 @@ private struct DeviceRowView: View {
                         .lineLimit(2)
 
                     HStack(spacing: 8) {
+                        Text(device.platform.title)
+                            .foregroundStyle(.secondary)
+
                         Label(device.status.title, systemImage: device.status.symbolName)
                             .labelStyle(.titleAndIcon)
                             .foregroundStyle(device.status.color)

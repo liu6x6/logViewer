@@ -1,5 +1,28 @@
 import SwiftUI
 
+enum DevicePlatform: String, Codable, CaseIterable, Hashable {
+    case ios
+    case android
+
+    var title: String {
+        switch self {
+        case .ios:
+            return "iOS"
+        case .android:
+            return "Android"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .ios:
+            return "iphone.gen3"
+        case .android:
+            return "candybarphone"
+        }
+    }
+}
+
 enum DeviceConnectionStatus: String, Codable, CaseIterable, Hashable {
     case connected = "已连接"
     case disconnected = "未连接"
@@ -36,6 +59,7 @@ struct ConnectionRecord: Identifiable, Hashable {
 struct DeviceModel: Identifiable, Hashable {
     let id: String
     var name: String
+    var platform: DevicePlatform
     var status: DeviceConnectionStatus
     var transferRateKBps: Double
     var connectionHistory: [ConnectionRecord]
@@ -43,12 +67,14 @@ struct DeviceModel: Identifiable, Hashable {
     init(
         id: String,
         name: String,
+        platform: DevicePlatform = .ios,
         status: DeviceConnectionStatus = .disconnected,
         transferRateKBps: Double = 0,
         connectionHistory: [ConnectionRecord] = []
     ) {
         self.id = id
         self.name = name
+        self.platform = platform
         self.status = status
         self.transferRateKBps = transferRateKBps
         self.connectionHistory = connectionHistory

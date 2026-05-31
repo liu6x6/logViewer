@@ -4,6 +4,8 @@
 <dict>
 	<key>NSBonjourServices</key>
 	<array>
+		<string>_logviewer._tcp</string>
+		<string>_logviewer-android._tcp</string>
 		<string>_logviewer-pipe._tcp</string>
 		<string>_pulse._tcp</string>
 	</array>

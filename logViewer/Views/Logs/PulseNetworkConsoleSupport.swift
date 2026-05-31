@@ -274,24 +274,29 @@ final class PulseNetworkQueryController: NSObject, ObservableObject, NSFetchedRe
     private var fetchedResultsController: NSFetchedResultsController<NetworkTaskEntity>?
     private var currentQuery = PulseNetworkConsoleQuery()
     private var currentBlocklist = NetworkRequestBlocklistSnapshot.empty
+    private var currentDevicePredicate: NSPredicate?
 
     init(
         context: NSManagedObjectContext,
-        blocklist: NetworkRequestBlocklistSnapshot
+        blocklist: NetworkRequestBlocklistSnapshot,
+        devicePredicate: NSPredicate?
     ) {
         self.context = context
         self.currentBlocklist = blocklist
+        self.currentDevicePredicate = devicePredicate
         super.init()
-        apply(query: currentQuery, blocklist: blocklist)
+        apply(query: currentQuery, blocklist: blocklist, devicePredicate: devicePredicate)
         refreshFacets()
     }
 
     func apply(
         query: PulseNetworkConsoleQuery,
-        blocklist: NetworkRequestBlocklistSnapshot
+        blocklist: NetworkRequestBlocklistSnapshot,
+        devicePredicate: NSPredicate?
     ) {
         currentQuery = query
         currentBlocklist = blocklist
+        currentDevicePredicate = devicePredicate
 
         let request = NSFetchRequest<NetworkTaskEntity>(entityName: "NetworkTaskEntity")
         request.predicate = makeCombinedPredicate(extraPredicate: nil)
@@ -400,7 +405,7 @@ final class PulseNetworkQueryController: NSObject, ObservableObject, NSFetchedRe
     }
 
     private func makeCombinedPredicate(extraPredicate: NSPredicate?) -> NSPredicate? {
-        let predicates = [currentQuery.predicate, currentBlocklist.exclusionPredicate, extraPredicate]
+        let predicates = [currentQuery.predicate, currentBlocklist.exclusionPredicate, currentDevicePredicate, extraPredicate]
             .compactMap { $0 }
 
         switch predicates.count {
