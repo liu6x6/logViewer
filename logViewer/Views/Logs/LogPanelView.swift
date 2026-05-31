@@ -6,6 +6,7 @@ struct LogPanelView: View {
     let device: DeviceModel?
     @Binding var selectedCategory: LogCategory
     @Binding var selectedConsoleSelection: PulseConsoleSelection?
+    @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
     @State private var isShowingClearConfirmation = false
     @State private var isShowingNetworkBlacklist = false
 
@@ -101,7 +102,8 @@ struct LogPanelView: View {
         PulseConsoleHostView(
             injector: connectionManager.pulseInjector,
             category: category,
-            selection: $selectedConsoleSelection
+            selection: $selectedConsoleSelection,
+            actionCoordinator: actionCoordinator
         )
         #else
         Text("Pulse Console is only available on macOS in this project.")

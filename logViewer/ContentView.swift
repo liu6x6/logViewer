@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var connectionManager: ConnectionManager
+    @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var selectedDeviceID: DeviceModel.ID?
@@ -20,7 +21,8 @@ struct ContentView: View {
             LogPanelView(
                 device: selectedDevice,
                 selectedCategory: $selectedCategory,
-                selectedConsoleSelection: $selectedConsoleSelection
+                selectedConsoleSelection: $selectedConsoleSelection,
+                actionCoordinator: actionCoordinator
             )
                 .navigationSplitViewColumnWidth(min: 420, ideal: 620)
         } detail: {
@@ -28,7 +30,8 @@ struct ContentView: View {
                 device: selectedDevice,
                 latestPayloadPreview: connectionManager.latestReceivedPayload,
                 selectedConsoleSelection: selectedConsoleSelection,
-                injector: connectionManager.pulseInjector
+                injector: connectionManager.pulseInjector,
+                actionCoordinator: actionCoordinator
             )
                 .navigationSplitViewColumnWidth(min: 420, ideal: 540)
         }
@@ -48,6 +51,10 @@ struct ContentView: View {
             if selectedDeviceID == nil {
                 selectedDeviceID = connectionManager.devices.first?.id
             }
+            actionCoordinator.selectedConsoleSelection = selectedConsoleSelection
+        }
+        .onChange(of: selectedConsoleSelection) { _, newValue in
+            actionCoordinator.selectedConsoleSelection = newValue
         }
     }
 }

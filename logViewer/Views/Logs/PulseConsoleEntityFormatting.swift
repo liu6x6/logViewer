@@ -4,6 +4,106 @@ import SwiftUI
 #if os(macOS) && canImport(Pulse)
 import Pulse
 
+enum NetworkRequestReplayError: LocalizedError {
+    case invalidURL(String?)
+    case blockedURL(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL(let rawValue):
+            if let rawValue, !rawValue.isEmpty {
+                return "This request can't be sent again because its URL is invalid: \(rawValue)"
+            }
+            return "This request can't be sent again because it does not contain a valid URL."
+        case .blockedURL(let rawValue):
+            return "This request is blocked by the current network blocklist and was not sent: \(rawValue)"
+        }
+    }
+}
+
+enum NetworkRequestCopyAction: String, CaseIterable, Identifiable {
+    case url
+    case queryParameters
+    case queryParametersJSON
+    case headers
+    case headersJSON
+    case body
+    case bodyPrettyJSON
+    case cURL
+    case requestSummary
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .url:
+            return "Copy URL"
+        case .queryParameters:
+            return "Copy Query Parameters"
+        case .queryParametersJSON:
+            return "Copy Query Parameters as JSON"
+        case .headers:
+            return "Copy Headers"
+        case .headersJSON:
+            return "Copy Headers as JSON"
+        case .body:
+            return "Copy Body"
+        case .bodyPrettyJSON:
+            return "Copy Body as Pretty JSON"
+        case .cURL:
+            return "Copy cURL"
+        case .requestSummary:
+            return "Copy Request Summary"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .url:
+            return "link"
+        case .queryParameters:
+            return "list.bullet.indent"
+        case .queryParametersJSON:
+            return "curlybraces.square"
+        case .headers:
+            return "rectangle.compress.vertical"
+        case .headersJSON:
+            return "shippingbox"
+        case .body:
+            return "doc.text"
+        case .bodyPrettyJSON:
+            return "doc.plaintext"
+        case .cURL:
+            return "terminal"
+        case .requestSummary:
+            return "doc.on.doc"
+        }
+    }
+
+    func text(from task: NetworkTaskEntity) -> String? {
+        switch self {
+        case .url:
+            return task.copyableRequestURLText
+        case .queryParameters:
+            return task.requestQueryParametersText
+        case .queryParametersJSON:
+            return task.requestQueryParametersJSONText
+        case .headers:
+            return task.requestHeadersCopyText
+        case .headersJSON:
+            return task.requestHeadersJSONText
+        case .body:
+            return task.requestBodyCopyText
+        case .bodyPrettyJSON:
+            return task.requestBodyPrettyJSONText
+        case .cURL:
+            return task.curlCommandText
+        case .requestSummary:
+            return task.requestSummaryText
+        }
+    }
+}
+
 extension LoggerMessageEntity {
     var logLevelTitle: String {
         (LoggerStore.Level(rawValue: level) ?? .debug).name.uppercased()
@@ -40,6 +140,10 @@ extension LoggerMessageEntity {
 }
 
 extension NetworkTaskEntity {
+    var canSendAgain: Bool {
+        (try? makeReplayRequest()) != nil
+    }
+
     var primaryURLText: String {
         if let url, !url.isEmpty {
             return url
@@ -105,8 +209,28 @@ extension NetworkTaskEntity {
         formattedHeaders(from: currentRequest?.headers ?? originalRequest?.headers ?? [:])
     }
 
+    var requestHeadersCopyText: String? {
+        requestHeaders.isEmpty ? nil : requestHeadersText
+    }
+
     var requestHeaderCount: Int {
         (currentRequest?.headers ?? originalRequest?.headers ?? [:]).count
+    }
+
+    var requestHeaderNamesText: String? {
+        guard !requestHeaders.isEmpty else {
+            return nil
+        }
+        return requestHeaders.keys
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .joined(separator: "\n")
+    }
+
+    var requestHeadersJSONText: String? {
+        guard !requestHeaders.isEmpty else {
+            return nil
+        }
+        return formattedJSONString(from: requestHeaders)
     }
 
     var responseHeadersText: String {
@@ -133,10 +257,70 @@ extension NetworkTaskEntity {
         requestBody?.data
     }
 
+    var requestBodyCopyText: String? {
+        decodedRequestText(from: requestBodyData)
+    }
+
+    var requestBodyPrettyJSONText: String? {
+        guard let data = requestBodyData else {
+            return nil
+        }
+        return prettyJSONString(from: data)
+    }
+
+    var copyableRequestURLText: String? {
+        guard let rawURL = url?.trimmingCharacters(in: .whitespacesAndNewlines), !rawURL.isEmpty else {
+            return nil
+        }
+        return rawURL
+    }
+
+    var requestHostText: String? {
+        requestURLComponents?.host ?? host
+    }
+
+    var requestPathText: String? {
+        let pathValue = requestURLComponents?.percentEncodedPath
+        if let pathValue, !pathValue.isEmpty {
+            return pathValue
+        }
+        return nil
+    }
+
+    var requestQueryStringText: String? {
+        guard let query = requestURLComponents?.percentEncodedQuery, !query.isEmpty else {
+            return nil
+        }
+        return query
+    }
+
+    var requestQueryParametersText: String? {
+        guard !requestQueryItems.isEmpty else {
+            return nil
+        }
+
+        return requestQueryItems
+            .map { item in
+                if let value = item.value {
+                    return "\(item.name)=\(value)"
+                }
+                return item.name
+            }
+            .joined(separator: "\n")
+    }
+
+    var requestQueryParametersJSONText: String? {
+        let jsonObject = requestQueryJSONObject
+        guard !jsonObject.isEmpty else {
+            return nil
+        }
+        return formattedJSONString(from: jsonObject)
+    }
+
     var curlCommandText: String {
         let methodValue = (httpMethod?.isEmpty == false ? httpMethod! : "GET").uppercased()
         let requestURL = primaryURLText == "Unknown Request" ? "" : primaryURLText
-        let headers = (currentRequest?.headers ?? originalRequest?.headers ?? [:])
+        let headers = requestHeaders
             .sorted { lhs, rhs in lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending }
 
         var lines = ["curl \(requestURL.shellQuotedForBash)"]
@@ -151,6 +335,31 @@ extension NetworkTaskEntity {
         }
 
         return lines.joined(separator: " \\\n")
+    }
+
+    func makeReplayRequest() throws -> URLRequest {
+        guard
+            let rawURL = url?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !rawURL.isEmpty,
+            let replayURL = URL(string: rawURL)
+        else {
+            throw NetworkRequestReplayError.invalidURL(url)
+        }
+
+        var request = URLRequest(url: replayURL)
+        request.httpMethod = (httpMethod?.isEmpty == false ? httpMethod! : "GET").uppercased()
+
+        let headers = replayHeaders
+        request.allHTTPHeaderFields = headers.isEmpty ? nil : headers
+        request.httpBody = requestBodyData
+        request.timeoutInterval = 60
+        return request
+    }
+
+    var replayTaskDescription: String {
+        let methodValue = (httpMethod?.isEmpty == false ? httpMethod! : "GET").uppercased()
+        let timestamp = Self.replayTimestampFormatter.string(from: Date())
+        return "Inspector Replay @ \(timestamp) · \(methodValue) \(primaryURLText)"
     }
 
     var shareableResponseText: String? {
@@ -205,10 +414,71 @@ extension NetworkTaskEntity {
         decodedRequestText(from: responseBodyData)
     }
 
+    var requestSummaryText: String {
+        [
+            "\(requestMethodValue) \(primaryURLText)",
+            "",
+            "Headers",
+            requestHeadersText,
+            "",
+            "Query Parameters",
+            requestQueryParametersText ?? "No Query Parameters",
+            "",
+            "Body",
+            requestBodyPrettyJSONText ?? requestBodyCopyText ?? "No Body"
+        ]
+        .joined(separator: "\n")
+    }
+
     var binaryResponseSummary: String {
         let sizeDescription = Int64(responseBodyData?.count ?? Int(responseBodySize)).byteCountString
         let contentTypeDescription = responseContentTypeValue?.rawValue ?? "unknown content type"
         return "Binary response captured (\(sizeDescription), \(contentTypeDescription)). Use Save Response to export the original body."
+    }
+
+    private var requestMethodValue: String {
+        (httpMethod?.isEmpty == false ? httpMethod! : "GET").uppercased()
+    }
+
+    private var requestHeaders: [String: String] {
+        currentRequest?.headers ?? originalRequest?.headers ?? [:]
+    }
+
+    private var requestURLComponents: URLComponents? {
+        guard let copyableRequestURLText else {
+            return nil
+        }
+        return URLComponents(string: copyableRequestURLText)
+    }
+
+    private var requestQueryItems: [URLQueryItem] {
+        requestURLComponents?.queryItems ?? []
+    }
+
+    private var requestQueryJSONObject: [String: Any] {
+        var result: [String: Any] = [:]
+
+        for item in requestQueryItems {
+            let value = item.value ?? ""
+            if let existingValues = result[item.name] as? [String] {
+                result[item.name] = existingValues + [value]
+            } else if let existingValue = result[item.name] as? String {
+                result[item.name] = [existingValue, value]
+            } else {
+                result[item.name] = value
+            }
+        }
+
+        return result
+    }
+
+    private func formattedJSONString(from object: Any) -> String? {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return string
     }
 
     private func formattedHeaders(from headers: [String: String]) -> String {
@@ -264,6 +534,29 @@ extension NetworkTaskEntity {
 
         return nil
     }
+
+    private var replayHeaders: [String: String] {
+        let droppedHeaders: Set<String> = [
+            "connection",
+            "content-length",
+            "host",
+            "proxy-connection",
+            "transfer-encoding"
+        ]
+
+        return (currentRequest?.headers ?? originalRequest?.headers ?? [:]).reduce(into: [:]) { result, header in
+            guard !droppedHeaders.contains(header.key.lowercased()) else {
+                return
+            }
+            result[header.key] = header.value
+        }
+    }
+
+    private static let replayTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter
+    }()
 }
 
 extension Int64 {

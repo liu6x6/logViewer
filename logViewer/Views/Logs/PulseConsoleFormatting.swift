@@ -8,6 +8,7 @@ struct PulseConsoleHostView: View {
     let injector: PulseStoreInjector
     let category: LogCategory
     @Binding var selection: PulseConsoleSelection?
+    @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
 
     var body: some View {
         Group {
@@ -18,7 +19,8 @@ struct PulseConsoleHostView: View {
                 PulseNetworkConsoleView(
                     context: injector.store.viewContext,
                     blocklist: injector.blocklist,
-                    selection: $selection
+                    selection: $selection,
+                    actionCoordinator: actionCoordinator
                 )
             }
         }
@@ -56,6 +58,7 @@ private struct PulseMessagesConsoleView: View {
 private struct PulseNetworkConsoleView: View {
     @StateObject private var controller: PulseNetworkQueryController
     @ObservedObject private var blocklist: NetworkRequestBlocklist
+    @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
     @State private var query = PulseNetworkConsoleQuery()
     @State private var expandedSections: Set<String> = []
     @Binding var selection: PulseConsoleSelection?
@@ -63,12 +66,14 @@ private struct PulseNetworkConsoleView: View {
     init(
         context: NSManagedObjectContext,
         blocklist: NetworkRequestBlocklist,
-        selection: Binding<PulseConsoleSelection?>
+        selection: Binding<PulseConsoleSelection?>,
+        actionCoordinator: NetworkRequestActionCoordinator
     ) {
         _controller = StateObject(
             wrappedValue: PulseNetworkQueryController(context: context, blocklist: blocklist.snapshot)
         )
         _blocklist = ObservedObject(wrappedValue: blocklist)
+        _actionCoordinator = ObservedObject(wrappedValue: actionCoordinator)
         _selection = selection
     }
 
@@ -222,6 +227,10 @@ private struct PulseNetworkConsoleView: View {
                 .pickerStyle(.menu)
                 .frame(width: 150)
 
+                Spacer(minLength: 12)
+
+            }
+            HStack(spacing: 10) {
                 Picker("Sort", selection: $query.sortField) {
                     ForEach(PulseNetworkSortField.allCases) { field in
                         Text(field.title).tag(field)
@@ -236,10 +245,9 @@ private struct PulseNetworkConsoleView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 180)
-
+//                .frame(width: 180)
                 Spacer(minLength: 12)
-
+                
                 Button("Reset Filters") {
                     query = PulseNetworkConsoleQuery()
                 }
@@ -315,6 +323,7 @@ private struct PulseNetworkConsoleView: View {
             task: task,
             isSelected: selection == .network(task.objectID),
             blocklist: blocklist,
+            actionCoordinator: actionCoordinator,
             deleteAction: {
                 controller.delete(taskWithID: task.objectID)
             }
@@ -414,6 +423,7 @@ private struct PulseNetworkRowView: View {
     let task: NetworkTaskEntity
     let isSelected: Bool
     @ObservedObject var blocklist: NetworkRequestBlocklist
+    @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
     let deleteAction: () -> Void
 
     var body: some View {
@@ -465,6 +475,29 @@ private struct PulseNetworkRowView: View {
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .animation(.easeInOut(duration: 0.16), value: isSelected)
         .contextMenu {
+            requestCopyButton(.url)
+            requestCopyButton(.queryParameters)
+            requestCopyButton(.queryParametersJSON)
+            requestCopyButton(.headers)
+            requestCopyButton(.headersJSON)
+            requestCopyButton(.body)
+            requestCopyButton(.bodyPrettyJSON)
+            requestCopyButton(.cURL)
+
+            Divider()
+
+            Button {
+                actionCoordinator.sendAgain(task)
+            } label: {
+                Label(
+                    actionCoordinator.isSendingAgain ? "Sending..." : "Send Again",
+                    systemImage: actionCoordinator.isSendingAgain ? "hourglass" : "paperplane"
+                )
+            }
+            .disabled(!task.canSendAgain || actionCoordinator.isSendingAgain)
+
+            Divider()
+
             Menu("Add to Blacklist") {
                 if let normalizedHost = task.normalizedHostValue {
                     Button("Add Host: \(normalizedHost)") {
@@ -514,6 +547,18 @@ private struct PulseNetworkRowView: View {
     private func metricLabel(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
     }
+
+    @ViewBuilder
+    private func requestCopyButton(_ action: NetworkRequestCopyAction) -> some View {
+        Button {
+            if let text = action.text(from: task) {
+                actionCoordinator.copy(text)
+            }
+        } label: {
+            Label(action.title, systemImage: action.systemImage)
+        }
+        .disabled(action.text(from: task) == nil)
+    }
 }
 
 private struct PulseEmptyStateView: View {
@@ -545,6 +590,7 @@ struct PulseConsoleHostView: View {
     let injector: PulseStoreInjector
     let category: LogCategory
     @Binding var selection: PulseConsoleSelection?
+    let actionCoordinator: NetworkRequestActionCoordinator
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

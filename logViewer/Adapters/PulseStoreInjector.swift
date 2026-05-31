@@ -202,6 +202,42 @@ final class PulseStoreInjector {
         try? store.viewContext.existingObject(with: objectID) as? NetworkTaskEntity
     }
 
+    func sendAgain(for task: NetworkTaskEntity) async throws {
+        let request = try task.makeReplayRequest()
+
+        guard let requestURL = request.url else {
+            throw NetworkRequestReplayError.invalidURL(task.url)
+        }
+
+        guard !blocklist.snapshot.matches(url: requestURL) else {
+            throw NetworkRequestReplayError.blockedURL(requestURL.absoluteString)
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            store.storeRequest(
+                request,
+                response: response as? HTTPURLResponse,
+                error: nil,
+                data: data,
+                metrics: nil,
+                label: "Inspector Replay",
+                taskDescription: task.replayTaskDescription
+            )
+        } catch {
+            store.storeRequest(
+                request,
+                response: nil,
+                error: error as NSError,
+                data: nil,
+                metrics: nil,
+                label: "Inspector Replay",
+                taskDescription: task.replayTaskDescription
+            )
+            throw error
+        }
+    }
+
     private func injectTransportFailure(message: String, timestamp: Date) {
         store.storeMessage(
             createdAt: timestamp,

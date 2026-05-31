@@ -15,6 +15,7 @@ struct LogDetailView: View {
     let latestPayloadPreview: String?
     let selectedConsoleSelection: PulseConsoleSelection?
     let injector: PulseStoreInjector
+    @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
 
     @State private var selectedTab: DetailTab = .request
     @State private var saveErrorMessage: String?
@@ -119,6 +120,9 @@ struct LogDetailView: View {
                         ) {
                             MonospacedDetailText(text: task.requestHeadersText)
                         }
+                        .contextMenu {
+                            requestHeaderContextMenu(for: task)
+                        }
 
                         DetailSectionCard(
                             title: "Request Body",
@@ -126,12 +130,18 @@ struct LogDetailView: View {
                         ) {
                             MonospacedDetailText(text: task.requestBodyPreviewText)
                         }
+                        .contextMenu {
+                            requestBodyContextMenu(for: task)
+                        }
 
                         DetailSectionCard(
                             title: "cURL",
                             subtitle: "Chrome-style request command"
                         ) {
                             MonospacedDetailText(text: task.curlCommandText)
+                        }
+                        .contextMenu {
+                            requestCurlContextMenu(for: task)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -305,7 +315,7 @@ private extension LogDetailView {
         if let responseActionText {
             HStack(spacing: 10) {
                 Button {
-                    copyResponseText(responseActionText)
+                    actionCoordinator.copy(responseActionText)
                 } label: {
                     Label("Copy Response", systemImage: "doc.on.doc")
                 }
@@ -324,12 +334,23 @@ private extension LogDetailView {
     @ViewBuilder
     func requestActions(for task: NetworkTaskEntity) -> some View {
         HStack(spacing: 10) {
-            Button {
-                copyResponseText(task.curlCommandText)
+            Menu {
+                requestCopyMenuItems(for: task)
             } label: {
-                Label("Copy cURL", systemImage: "terminal")
+                Label("Copy", systemImage: "doc.on.doc")
             }
             .buttonStyle(.bordered)
+
+            Button {
+                actionCoordinator.sendAgain(task)
+            } label: {
+                Label(
+                    actionCoordinator.isSendingAgain ? "Sending..." : "Send Again",
+                    systemImage: actionCoordinator.isSendingAgain ? "hourglass" : "paperplane"
+                )
+            }
+            .buttonStyle(.bordered)
+            .disabled(actionCoordinator.isSendingAgain || !task.canSendAgain)
 
             Spacer(minLength: 12)
         }
@@ -340,7 +361,7 @@ private extension LogDetailView {
         HStack(spacing: 10) {
             if let copyableText = task.responseBodyPresentation.copyableText {
                 Button {
-                    copyResponseText(copyableText)
+                    actionCoordinator.copy(copyableText)
                 } label: {
                     Label("Copy Response", systemImage: "doc.on.doc")
                 }
@@ -382,11 +403,6 @@ private extension LogDetailView {
         case .network(let objectID):
             return injector.networkTaskEntity(for: objectID).map(InspectorPayload.network)
         }
-    }
-
-    func copyResponseText(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 
     func saveResponse(for task: NetworkTaskEntity) {
@@ -447,6 +463,99 @@ private extension LogDetailView {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.thinMaterial)
         )
+        .contextMenu {
+            requestOverviewContextMenu(for: task)
+        }
+    }
+
+    @ViewBuilder
+    func requestCopyMenuItems(for task: NetworkTaskEntity) -> some View {
+        requestCopyButton(.url, for: task)
+        requestCopyButton(.queryParameters, for: task)
+        requestCopyButton(.queryParametersJSON, for: task)
+        Divider()
+        requestCopyButton(.headers, for: task)
+        requestCopyButton(.headersJSON, for: task)
+        requestCopyButton(.body, for: task)
+        requestCopyButton(.bodyPrettyJSON, for: task)
+        Divider()
+        requestCopyButton(.cURL, for: task)
+        requestCopyButton(.requestSummary, for: task)
+    }
+
+    @ViewBuilder
+    func requestOverviewContextMenu(for task: NetworkTaskEntity) -> some View {
+        requestCopyButton(.url, for: task)
+
+        Button {
+            actionCoordinator.copy(task.requestHostText ?? "")
+        } label: {
+            Label("Copy Host", systemImage: "network")
+        }
+        .disabled(task.requestHostText == nil)
+
+        Button {
+            actionCoordinator.copy(task.requestPathText ?? "")
+        } label: {
+            Label("Copy Path", systemImage: "point.topleft.down.curvedto.point.bottomright.up")
+        }
+        .disabled(task.requestPathText == nil)
+
+        Button {
+            actionCoordinator.copy(task.requestQueryStringText ?? "")
+        } label: {
+            Label("Copy Query String", systemImage: "text.append")
+        }
+        .disabled(task.requestQueryStringText == nil)
+
+        requestCopyButton(.queryParameters, for: task)
+        requestCopyButton(.queryParametersJSON, for: task)
+    }
+
+    @ViewBuilder
+    func requestHeaderContextMenu(for task: NetworkTaskEntity) -> some View {
+        requestCopyButton(.headers, for: task)
+        requestCopyButton(.headersJSON, for: task)
+
+        Button {
+            actionCoordinator.copy(task.requestHeaderNamesText ?? "")
+        } label: {
+            Label("Copy Header Names", systemImage: "list.bullet")
+        }
+        .disabled(task.requestHeaderNamesText == nil)
+    }
+
+    @ViewBuilder
+    func requestBodyContextMenu(for task: NetworkTaskEntity) -> some View {
+        requestCopyButton(.body, for: task)
+        requestCopyButton(.bodyPrettyJSON, for: task)
+    }
+
+    @ViewBuilder
+    func requestCurlContextMenu(for task: NetworkTaskEntity) -> some View {
+        requestCopyButton(.cURL, for: task)
+
+        Button {
+            actionCoordinator.sendAgain(task)
+        } label: {
+            Label(
+                actionCoordinator.isSendingAgain ? "Sending..." : "Send Again",
+                systemImage: actionCoordinator.isSendingAgain ? "hourglass" : "paperplane"
+            )
+        }
+        .disabled(actionCoordinator.isSendingAgain || !task.canSendAgain)
+    }
+
+    @ViewBuilder
+    func requestCopyButton(_ action: NetworkRequestCopyAction, for task: NetworkTaskEntity) -> some View {
+        Button {
+            if let text = action.text(from: task) {
+                actionCoordinator.copy(text)
+            }
+        } label: {
+            Label(action.title, systemImage: action.systemImage)
+        }
+        .disabled(action.text(from: task) == nil)
     }
     #endif
 }
