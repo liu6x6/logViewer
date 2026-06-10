@@ -36,6 +36,7 @@ struct LogPanelView: View {
                 selectedConsoleSelection = nil
                 connectionManager.clearStoredRecords()
             }
+            .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes all stored messages, network requests, and device connection history from the current session.")

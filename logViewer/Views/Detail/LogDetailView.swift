@@ -178,9 +178,10 @@ struct LogDetailView: View {
 
                         DetailSectionCard(
                             title: "Response Body",
-                            subtitle: task.responseBodyPresentation.bodySummary
+                            subtitle: task.responseBodySummaryText
                         ) {
                             NetworkResponseBodyContentView(task: task)
+                                .id(task.objectID)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -620,35 +621,73 @@ private struct MonospacedDetailText: View {
 private struct NetworkResponseBodyContentView: View {
     let task: NetworkTaskEntity
 
-    var body: some View {
-        switch task.responseBodyPresentation {
-        case .empty(let message):
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        case let .json(_, highlightedText):
-            Text(highlightedText)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case let .text(text):
-            MonospacedDetailText(text: text)
-        case let .image(preview):
-            VStack(alignment: .leading, spacing: 12) {
-                Image(nsImage: preview.image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: 420)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    @State private var showsHTMLInSafari = false
+    @State private var safariErrorMessage: String?
 
-                Text("Image preview is cached in memory so reopening this request stays fast.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if task.isHTMLResponse {
+                Toggle("Show HTML in Safari", isOn: $showsHTMLInSafari)
+                    .toggleStyle(.switch)
+                    .onChange(of: showsHTMLInSafari) { _, isEnabled in
+                        guard isEnabled else {
+                            return
+                        }
+                        do {
+                            try task.openHTMLResponseInSafari()
+                        } catch {
+                            safariErrorMessage = error.localizedDescription
+                            showsHTMLInSafari = false
+                        }
+                    }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        case let .binary(summary):
-            Text(summary)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+
+            if showsHTMLInSafari, task.isHTMLResponse {
+                Text("HTML preview has been opened in Safari. Turn this off to switch back to the raw text view here.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                switch task.responseBodyPresentation {
+                case .empty(let message):
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                case let .json(_, highlightedText):
+                    Text(highlightedText)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                case let .text(text):
+                    MonospacedDetailText(text: text)
+                case let .image(preview):
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(nsImage: preview.image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: 420)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                        Text("Image preview is cached in memory so reopening this request stays fast.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                case let .binary(summary):
+                    Text(summary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .alert(
+            "Failed to Open in Safari",
+            isPresented: Binding(
+                get: { safariErrorMessage != nil },
+                set: { if !$0 { safariErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(safariErrorMessage ?? "Unknown error.")
         }
     }
 }

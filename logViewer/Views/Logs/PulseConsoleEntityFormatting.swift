@@ -394,7 +394,11 @@ extension NetworkTaskEntity {
     }
 
     var responseBodyData: Data? {
-        responseBody?.data
+        NetworkResponseBodyNormalizer.normalized(
+            responseBody?.data,
+            headers: response?.headers,
+            contentType: responseContentType
+        )
     }
 
     var responseContentTypeValue: NetworkLogger.ContentType? {

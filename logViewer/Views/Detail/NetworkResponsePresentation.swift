@@ -46,6 +46,23 @@ struct NetworkResponseExportPayload {
     let fileName: String
 }
 
+enum NetworkResponseSafariPreviewError: LocalizedError {
+    case missingHTMLBody
+    case safariUnavailable
+    case launchFailed(Int32)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingHTMLBody:
+            return "This response doesn't contain a decodable HTML body."
+        case .safariUnavailable:
+            return "Safari is not available on this Mac, so the HTML response can't be opened there."
+        case .launchFailed(let status):
+            return "Safari couldn't open the HTML preview file (exit code \(status))."
+        }
+    }
+}
+
 @MainActor
 final class NetworkResponsePreviewCache {
     static let shared = NetworkResponsePreviewCache()
@@ -72,6 +89,32 @@ final class NetworkResponsePreviewCache {
 
     private func cacheKey(for task: NetworkTaskEntity) -> String {
         task.objectID.uriRepresentation().absoluteString
+    }
+}
+
+final class NetworkResponseHTMLPreviewCache {
+    static let shared = NetworkResponseHTMLPreviewCache()
+
+    private let directoryURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("logviewer-html-previews", isDirectory: true)
+
+    func previewFileURL(for task: NetworkTaskEntity, data: Data) throws -> URL {
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+
+        let objectIDComponent = task.objectID.uriRepresentation()
+            .lastPathComponent
+            .sanitizedFileNameComponent
+        let baseName = task.responseExportBaseName.sanitizedFileNameComponent
+        let fileURL = directoryURL.appendingPathComponent(
+            "\(baseName)-\(objectIDComponent).html",
+            isDirectory: false
+        )
+
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
     }
 }
 
@@ -105,6 +148,36 @@ extension NetworkTaskEntity {
         return .binary(summary: binaryResponseSummary)
     }
 
+    var isHTMLResponse: Bool {
+        if responseContentTypeValue?.isHTML == true {
+            return decodedResponseText != nil
+        }
+
+        guard let text = decodedResponseText else {
+            return false
+        }
+
+        let trimmedText = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return trimmedText.hasPrefix("<!doctype html")
+            || trimmedText.hasPrefix("<html")
+            || trimmedText.contains("<body")
+            || trimmedText.contains("<head")
+    }
+
+    var htmlResponseText: String? {
+        guard isHTMLResponse else {
+            return nil
+        }
+        return decodedResponseText
+    }
+
+    var responseBodySummaryText: String {
+        isHTMLResponse ? "HTML Body" : responseBodyPresentation.bodySummary
+    }
+
     var responseExportPayload: NetworkResponseExportPayload? {
         switch responseBodyPresentation {
         case .empty:
@@ -130,12 +203,12 @@ extension NetworkTaskEntity {
     }
 
     private var suggestedTextFileExtension: String {
-        guard let contentType = responseContentTypeValue else {
-            return "txt"
+        if isHTMLResponse {
+            return "html"
         }
 
-        if contentType.isHTML {
-            return "html"
+        guard let contentType = responseContentTypeValue else {
+            return "txt"
         }
 
         if contentType.type.contains("xml") {
@@ -174,7 +247,32 @@ extension NetworkTaskEntity {
         return "\(baseName).\(pathExtension)"
     }
 
-    private var responseExportBaseName: String {
+    func openHTMLResponseInSafari() throws {
+        guard isHTMLResponse, let responseBodyData, !responseBodyData.isEmpty else {
+            throw NetworkResponseSafariPreviewError.missingHTMLBody
+        }
+
+        guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") != nil else {
+            throw NetworkResponseSafariPreviewError.safariUnavailable
+        }
+
+        let previewFileURL = try NetworkResponseHTMLPreviewCache.shared.previewFileURL(
+            for: self,
+            data: responseBodyData
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "Safari", previewFileURL.path]
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            throw NetworkResponseSafariPreviewError.launchFailed(process.terminationStatus)
+        }
+    }
+
+    var responseExportBaseName: String {
         let timestamp = Self.exportTimestampFormatter.string(from: createdAt)
 
         if let urlString = url,

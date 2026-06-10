@@ -137,6 +137,11 @@ final class PulseStoreInjector {
             headerFields: payload.responseHeaders.isEmpty ? nil : payload.responseHeaders
         )
 
+        let responseBody = NetworkResponseBodyNormalizer.normalized(
+            payload.responseBody,
+            headers: payload.responseHeaders
+        )
+
         // `storeRequest` is the supported public Pulse API. It persists headers,
         // status code, and body blobs so PulseUI can render the response body
         // using the Content-Type from the supplied response headers.
@@ -144,7 +149,7 @@ final class PulseStoreInjector {
             request,
             response: response,
             error: nil,
-            data: payload.responseBody,
+            data: responseBody,
             metrics: nil,
             label: peerDisplayName,
             taskDescription: makeTaskDescription(remoteTimestamp: envelope.timestamp, peerID: peerID)
@@ -200,11 +205,16 @@ final class PulseStoreInjector {
         let response = makeHTTPResponse(for: event.response, requestURL: url)
         let error = event.error.map(makeRemoteResponseError)
 
+        let responseBody = NetworkResponseBodyNormalizer.normalized(
+            event.responseBody,
+            headers: event.response?.headers
+        )
+
         store.storeRequest(
             request,
             response: response,
             error: error,
-            data: event.responseBody,
+            data: responseBody,
             metrics: nil,
             label: makeMessageLabel(category: event.label ?? "network", peerDisplayName: peerDisplayName),
             taskDescription: makeRemoteTaskDescription(for: event, peerID: peerID)
@@ -273,7 +283,10 @@ final class PulseStoreInjector {
             )
         }
 
-        let responseData = payload.responseBody?.data(using: .utf8)
+        let responseData = NetworkResponseBodyNormalizer.normalized(
+            payload.responseBody?.data(using: .utf8),
+            headers: payload.responseHeaders
+        )
 
         store.storeRequest(
             request,
