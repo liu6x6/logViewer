@@ -6,8 +6,9 @@ struct ContentView: View {
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var selectedDeviceID: DeviceModel.ID?
-    @State private var selectedCategory: LogCategory = .messages
+    @State private var selectedCategory: LogCategory = .network
     @State private var selectedConsoleSelection: PulseConsoleSelection?
+    @State private var isInspectorCollapsed = false
 
     private var selectedDevice: DeviceModel? {
         connectionManager.devices.first { $0.id == selectedDeviceID }
@@ -24,18 +25,24 @@ struct ContentView: View {
                 selectedConsoleSelection: $selectedConsoleSelection,
                 actionCoordinator: actionCoordinator
             )
-                .navigationSplitViewColumnWidth(min: 420, ideal: 620)
+            .navigationSplitViewColumnWidth(min: 420, ideal: 620)
         } detail: {
-            LogDetailView(
-                device: selectedDevice,
-                latestPayloadPreview: connectionManager.latestReceivedPayload,
-                selectedConsoleSelection: selectedConsoleSelection,
-                injector: connectionManager.pulseInjector,
-                actionCoordinator: actionCoordinator
-            )
-                .navigationSplitViewColumnWidth(min: 420, ideal: 540)
+            if isInspectorCollapsed {
+                Color.clear
+                    .navigationSplitViewColumnWidth(min: 0, ideal: 0, max: 0)
+            } else {
+                LogDetailView(
+                    device: selectedDevice,
+                    latestPayloadPreview: connectionManager.latestReceivedPayload,
+                    selectedConsoleSelection: selectedConsoleSelection,
+                    injector: connectionManager.pulseInjector,
+                    actionCoordinator: actionCoordinator
+                )
+                .navigationSplitViewColumnWidth(min: 420, ideal: 540, max: 640)
+            }
         }
         .navigationSplitViewStyle(.balanced)
+        .animation(.easeInOut(duration: 0.22), value: isInspectorCollapsed)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
@@ -45,6 +52,18 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isInspectorCollapsed.toggle()
+                } label: {
+                    Label(
+                        isInspectorCollapsed ? "Show Inspector" : "Hide Inspector",
+                        systemImage: "sidebar.trailing"
+                    )
+                }
+                .help(isInspectorCollapsed ? "展开右侧属性页" : "折叠右侧属性页")
             }
         }
         .onAppear {

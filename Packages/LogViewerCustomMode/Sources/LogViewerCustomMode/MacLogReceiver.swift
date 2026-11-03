@@ -16,6 +16,7 @@ public final class MacLogReceiver: NSObject, ObservableObject {
     private let browser: MCNearbyServiceBrowser
 
     private var invitedPeerIDs: Set<String> = []
+    private var discoveryInfoByPeerName: [String: [String: String]] = [:]
 
     public init(displayName: String? = nil) {
         let resolvedDisplayName = displayName ?? LogViewerMultipeerConfiguration.defaultDisplayName
@@ -40,6 +41,7 @@ public final class MacLogReceiver: NSObject, ObservableObject {
         browser.stopBrowsingForPeers()
         session.disconnect()
         invitedPeerIDs.removeAll()
+        discoveryInfoByPeerName.removeAll()
         connectedPeerDisplayNames = []
     }
 
@@ -47,6 +49,8 @@ public final class MacLogReceiver: NSObject, ObservableObject {
         guard discoveryInfo?[LogViewerMultipeerConfiguration.roleKey] == LogViewerPeerRole.sender.rawValue else {
             return
         }
+
+        discoveryInfoByPeerName[peerID.displayName] = discoveryInfo
 
         guard !session.connectedPeers.contains(peerID) else {
             return
@@ -84,6 +88,7 @@ public final class MacLogReceiver: NSObject, ObservableObject {
                 displayName: peerID.displayName,
                 role: .sender,
                 state: mappedState,
+                details: LogViewerDeviceDetails(discoveryInfo: discoveryInfoByPeerName[peerKey]),
                 occurredAt: .now
             )
         )
@@ -108,6 +113,7 @@ extension MacLogReceiver: MCNearbyServiceBrowserDelegate {
     nonisolated public func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
         Task { @MainActor [weak self] in
             self?.invitedPeerIDs.remove(peerID.displayName)
+            self?.discoveryInfoByPeerName.removeValue(forKey: peerID.displayName)
         }
     }
 

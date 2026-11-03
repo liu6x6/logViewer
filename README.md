@@ -26,6 +26,8 @@
 | `docs/custom-mode.md` | iOS Custom Mode 集成说明 |
 | `docs/pulse-mode.md` | Pulse 模式说明 |
 | `docs/modes-comparison.md` | 不同模式的对比 |
+| `docs/architecture.md` | 整体架构 / 协议规范 / 文件修改指引（AI 开发上下文） |
+| `docs/session-changes-2026-07-30.md` | 2026-07-30 session 改动总结（设备管理/Inspector/列表性能/Messages） |
 | `快捷方式.md` | Request 复制 / Send Again / 右键菜单 / 快捷键设计说明 |
 | `Packages/LogViewerCustomMode/README.md` | iOS Custom Mode Swift Package 的使用方式 |
 | `../logViewerAndroid/README.md` | Android SDK 与 Demo 的使用方式 |

@@ -476,4 +476,128 @@ extension NetworkTaskEntity {
         return "—"
     }
 }
+
+// MARK: - Messages Console Query
+
+enum PulseMessageLevelFilter: String, CaseIterable, Identifiable {
+    case debug
+    case info
+    case error
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .debug: return "Debug"
+        case .info: return "Info"
+        case .error: return "Error"
+        }
+    }
+
+    var level: LoggerStore.Level {
+        switch self {
+        case .debug: return .debug
+        case .info: return .info
+        case .error: return .error
+        }
+    }
+}
+
+struct PulseMessagesConsoleQuery: Equatable {
+    var searchText = ""
+    var levelFilters: Set<PulseMessageLevelFilter> = []
+}
+
+@MainActor
+final class PulseMessagesQueryController: NSObject, ObservableObject, NSFetchedResultsControllerDelegate {
+    @Published private(set) var messages: [LoggerMessageEntity] = []
+
+    private let context: NSManagedObjectContext
+    private var fetchedResultsController: NSFetchedResultsController<LoggerMessageEntity>?
+    private var currentQuery = PulseMessagesConsoleQuery()
+    private var currentDevicePredicate: NSPredicate?
+
+    init(context: NSManagedObjectContext, devicePredicate: NSPredicate?) {
+        self.context = context
+        self.currentDevicePredicate = devicePredicate
+        super.init()
+        apply(query: currentQuery, devicePredicate: devicePredicate)
+    }
+
+    func apply(query: PulseMessagesConsoleQuery, devicePredicate: NSPredicate?) {
+        currentQuery = query
+        currentDevicePredicate = devicePredicate
+
+        let request = NSFetchRequest<LoggerMessageEntity>(entityName: "LoggerMessageEntity")
+        request.predicate = makeCombinedPredicate()
+        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+        request.fetchBatchSize = 200
+        request.returnsObjectsAsFaults = false
+
+        let controller = NSFetchedResultsController(
+            fetchRequest: request,
+            managedObjectContext: context,
+            sectionNameKeyPath: nil,
+            cacheName: nil
+        )
+        controller.delegate = self
+        fetchedResultsController = controller
+
+        do {
+            try controller.performFetch()
+            messages = controller.fetchedObjects ?? []
+        } catch {
+            messages = []
+            print("[logViewer][MessagesConsole] fetch failed: \(error.localizedDescription)")
+        }
+    }
+
+    func controllerDidChangeContent(_ controller: NSFetchedResultsController<any NSFetchRequestResult>) {
+        messages = fetchedResultsController?.fetchedObjects ?? []
+    }
+
+    func delete(messageWithID objectID: NSManagedObjectID) {
+        context.performAndWait {
+            guard
+                let managedObject = try? context.existingObject(with: objectID),
+                let message = managedObject as? LoggerMessageEntity
+            else {
+                return
+            }
+
+            context.delete(message)
+
+            do {
+                try context.safeSave()
+            } catch {
+                print("[logViewer][MessagesConsole] delete failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func makeCombinedPredicate() -> NSPredicate? {
+        var predicates: [NSPredicate] = [NSPredicate(format: "task == NULL")]
+
+        let trimmedSearch = currentQuery.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedSearch.isEmpty {
+            predicates.append(
+                NSCompoundPredicate(orPredicateWithSubpredicates: [
+                    NSPredicate(format: "text CONTAINS[cd] %@", trimmedSearch),
+                    NSPredicate(format: "label CONTAINS[cd] %@", trimmedSearch)
+                ])
+            )
+        }
+
+        if !currentQuery.levelFilters.isEmpty {
+            let rawLevels = currentQuery.levelFilters.map { NSNumber(value: $0.level.rawValue) }
+            predicates.append(NSPredicate(format: "level IN %@", rawLevels))
+        }
+
+        if let devicePredicate = currentDevicePredicate {
+            predicates.append(devicePredicate)
+        }
+
+        return NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+    }
+}
 #endif

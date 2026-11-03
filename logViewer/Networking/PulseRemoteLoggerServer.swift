@@ -12,6 +12,7 @@ struct PulseRemoteLoggerPeerStateEvent: Identifiable, Sendable {
     let id: String
     let displayName: String
     let appName: String?
+    let details: DeviceDetails?
     let state: State
     let occurredAt: Date
 }
@@ -139,6 +140,7 @@ final class PulseRemoteLoggerServer {
                 id: identity.stableIdentifier,
                 displayName: identity.displayName,
                 appName: identity.appName,
+                details: identity.deviceDetails,
                 state: .connected,
                 occurredAt: .now
             )
@@ -173,6 +175,7 @@ final class PulseRemoteLoggerServer {
                 id: clientID,
                 displayName: displayName,
                 appName: appName,
+                details: nil,
                 state: .notConnected,
                 occurredAt: .now
             )
@@ -192,6 +195,7 @@ private struct PulseRemoteLoggerClientIdentity: Sendable {
     let displayName: String
     let appName: String?
     let bundleIdentifier: String?
+    let deviceDetails: DeviceDetails
 
     var stableIdentifier: String {
         if let bundleIdentifier, !bundleIdentifier.isEmpty {
@@ -205,6 +209,20 @@ private struct PulseRemoteLoggerClientIdentity: Sendable {
         self.displayName = hello.deviceInfo.name
         self.appName = hello.appInfo.name
         self.bundleIdentifier = hello.appInfo.bundleIdentifier
+        self.deviceDetails = DeviceDetails(
+            model: Self.nonEmpty(hello.deviceInfo.localizedModel) ?? Self.nonEmpty(hello.deviceInfo.model),
+            systemName: Self.nonEmpty(hello.deviceInfo.systemName),
+            systemVersion: Self.nonEmpty(hello.deviceInfo.systemVersion),
+            appName: Self.nonEmpty(hello.appInfo.name),
+            appVersion: Self.nonEmpty(hello.appInfo.version)
+        )
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return value
     }
 }
 

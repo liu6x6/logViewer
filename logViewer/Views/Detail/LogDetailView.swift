@@ -59,22 +59,41 @@ struct LogDetailView: View {
                 }
             }
 
-            TabView(selection: $selectedTab) {
-                requestDetailPane
-                    .tabItem { Text(DetailTab.request.rawValue) }
-                    .tag(DetailTab.request)
-
-                responseDetailPane
-                    .tabItem { Text(DetailTab.response.rawValue) }
-                    .tag(DetailTab.response)
-
-                detailPane(text: metricsTabText)
-                    .tabItem { Text(DetailTab.metrics.rawValue) }
-                    .tag(DetailTab.metrics)
-            }
+            inspectorBody
         }
-        .onChange(of: selectedConsoleSelection) { _, _ in
-            selectedTab = .request
+    }
+
+    @ViewBuilder
+    private var inspectorBody: some View {
+        #if os(macOS) && canImport(Pulse)
+        if case .message = selectedPayload {
+            messageDetailPane
+        } else {
+            inspectorTabs
+        }
+        #else
+        inspectorTabs
+        #endif
+    }
+
+    private var inspectorTabs: some View {
+        VStack(spacing: 12) {
+            Picker("Inspector Tab", selection: $selectedTab) {
+                ForEach(DetailTab.allCases, id: \.self) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            switch selectedTab {
+            case .request:
+                requestDetailPane
+            case .response:
+                responseDetailPane
+            case .metrics:
+                detailPane(text: metricsTabText)
+            }
         }
     }
 
@@ -392,6 +411,101 @@ private extension LogDetailView {
             return nil
         }
         return task.shareableResponseText
+    }
+
+    @ViewBuilder
+    var messageDetailPane: some View {
+        if case .message(let message) = selectedPayload {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Button {
+                        actionCoordinator.copy(message.text)
+                    } label: {
+                        Label("Copy Message", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.bordered)
+
+                    ShareLink(item: message.text) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer(minLength: 12)
+                }
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        messageOverviewCard(for: message)
+
+                        DetailSectionCard(
+                            title: "Message",
+                            subtitle: message.logLevelTitle
+                        ) {
+                            MonospacedDetailText(text: message.text)
+                        }
+                        .contextMenu {
+                            Button {
+                                actionCoordinator.copy(message.text)
+                            } label: {
+                                Label("Copy Message", systemImage: "doc.on.doc")
+                            }
+                        }
+
+                        if !message.metadata.isEmpty {
+                            DetailSectionCard(
+                                title: "Metadata",
+                                subtitle: "\(message.metadata.count) entries"
+                            ) {
+                                MonospacedDetailText(text: message.metadataText)
+                            }
+                            .contextMenu {
+                                Button {
+                                    actionCoordinator.copy(message.metadataText)
+                                } label: {
+                                    Label("Copy Metadata", systemImage: "doc.on.doc")
+                                }
+                            }
+                        }
+
+                        DetailSectionCard(
+                            title: "Source",
+                            subtitle: nil
+                        ) {
+                            MonospacedDetailText(text: messageSourceText(for: message))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    func messageOverviewCard(for message: LoggerMessageEntity) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(message.label.isEmpty ? "Remote Log" : message.label)
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 10) {
+                DetailChip(title: "Level", value: message.logLevelTitle)
+                DetailChip(title: "Time", value: message.formattedTimestamp)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.thinMaterial)
+        )
+    }
+
+    func messageSourceText(for message: LoggerMessageEntity) -> String {
+        """
+        File: \(message.file)
+        Function: \(message.function)
+        Line: \(message.line)
+        Session: \(message.session.uuidString)
+        """
     }
 
     var selectedPayload: InspectorPayload? {

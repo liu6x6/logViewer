@@ -18,6 +18,30 @@ struct DeviceSidebarView: View {
                     ForEach(connectionManager.devices) { device in
                         DeviceRowView(device: device)
                             .tag(device.id)
+                            .contextMenu {
+                                Button {
+                                    connectionManager.clearNetworkRecords(for: device)
+                                } label: {
+                                    Label("Clear Network", systemImage: "network")
+                                }
+
+                                Button {
+                                    connectionManager.clearMessageRecords(for: device)
+                                } label: {
+                                    Label("Clear Messages", systemImage: "text.bubble")
+                                }
+
+                                Divider()
+
+                                Button(role: .destructive) {
+                                    if selectedDeviceID == device.id {
+                                        selectedDeviceID = nil
+                                    }
+                                    connectionManager.removeDevice(id: device.id)
+                                } label: {
+                                    Label("Delete Device", systemImage: "trash")
+                                }
+                            }
                     }
                 }
                 .listStyle(.sidebar)
@@ -64,6 +88,13 @@ private struct DeviceRowView: View {
                         .font(.headline)
                         .lineLimit(2)
 
+                    if let modelSummary = device.modelSummary {
+                        Text(modelSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
                     HStack(spacing: 8) {
                         Text(device.platform.title)
                             .foregroundStyle(.secondary)
@@ -76,6 +107,13 @@ private struct DeviceRowView: View {
                             .foregroundStyle(.secondary)
                     }
                     .font(.caption)
+
+                    if let appSummary = device.appSummary {
+                        Label(appSummary, systemImage: "app")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
             }
 

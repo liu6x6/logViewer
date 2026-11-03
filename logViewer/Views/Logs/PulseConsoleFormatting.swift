@@ -15,7 +15,12 @@ struct PulseConsoleHostView: View {
         Group {
             switch category {
             case .messages:
-                PulseMessagesConsoleView(device: device, selection: $selection)
+                PulseMessagesConsoleView(
+                    context: injector.store.viewContext,
+                    device: device,
+                    selection: $selection,
+                    actionCoordinator: actionCoordinator
+                )
             case .network:
                 PulseNetworkConsoleView(
                     context: injector.store.viewContext,
@@ -32,50 +37,128 @@ struct PulseConsoleHostView: View {
 }
 
 private struct PulseMessagesConsoleView: View {
-    @FetchRequest
-    private var messages: FetchedResults<LoggerMessageEntity>
-
+    @StateObject private var controller: PulseMessagesQueryController
     let device: DeviceModel?
+    @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
     @Binding var selection: PulseConsoleSelection?
+    @State private var query = PulseMessagesConsoleQuery()
 
-    init(device: DeviceModel?, selection: Binding<PulseConsoleSelection?>) {
-        let basePredicate = NSPredicate(format: "task == NULL")
-        let devicePredicate = PulseStoreInjector.messagePredicate(for: device)
-        let predicate = [basePredicate, devicePredicate]
-            .compactMap { $0 }
-        _messages = FetchRequest(
-            sortDescriptors: [SortDescriptor(\LoggerMessageEntity.createdAt, order: .reverse)],
-            predicate: predicate.count == 1 ? predicate[0] : NSCompoundPredicate(andPredicateWithSubpredicates: predicate),
-            animation: .default
+    init(
+        context: NSManagedObjectContext,
+        device: DeviceModel?,
+        selection: Binding<PulseConsoleSelection?>,
+        actionCoordinator: NetworkRequestActionCoordinator
+    ) {
+        _controller = StateObject(
+            wrappedValue: PulseMessagesQueryController(
+                context: context,
+                devicePredicate: PulseStoreInjector.messagePredicate(for: device)
+            )
         )
-        _selection = selection
         self.device = device
+        _actionCoordinator = ObservedObject(wrappedValue: actionCoordinator)
+        _selection = selection
     }
 
     var body: some View {
-        if messages.isEmpty {
-            PulseEmptyStateView(
-                title: "No Messages Yet",
-                subtitle: device == nil
-                    ? "收到来自已连接设备（iOS / Android）的普通日志后，这里会按 Pulse 风格实时追加。"
-                    : "当前设备还没有消息日志。"
-            )
-        } else {
-            List(messages, selection: $selection) { message in
-                PulseMessageRowView(message: message)
-                    .tag(PulseConsoleSelection.message(message.objectID))
-            }
-            .listStyle(.inset(alternatesRowBackgrounds: true))
-            .onChange(of: messages.map(\.objectID)) { _, visibleIDs in
-                guard case let .message(objectID) = selection else {
-                    return
-                }
+        VStack(spacing: 0) {
+            messagesToolbar
+                .padding(12)
 
-                if !visibleIDs.contains(objectID) {
-                    selection = nil
+            Divider()
+
+            if controller.messages.isEmpty {
+                PulseEmptyStateView(
+                    title: "No Messages Yet",
+                    subtitle: device == nil
+                        ? "收到来自已连接设备（iOS / Android）的普通日志后，这里会按 Pulse 风格实时追加。"
+                        : "当前设备还没有消息日志。"
+                )
+            } else {
+                List(controller.messages, selection: $selection) { message in
+                    PulseMessageRowView(
+                        message: message,
+                        actionCoordinator: actionCoordinator,
+                        deleteAction: {
+                            controller.delete(messageWithID: message.objectID)
+                        }
+                    )
+                    .tag(PulseConsoleSelection.message(message.objectID))
                 }
+                .listStyle(.inset(alternatesRowBackgrounds: true))
             }
         }
+        .onChange(of: query) { _, newQuery in
+            controller.apply(query: newQuery, devicePredicate: PulseStoreInjector.messagePredicate(for: device))
+        }
+        .onChange(of: device?.id) { _, _ in
+            controller.apply(query: query, devicePredicate: PulseStoreInjector.messagePredicate(for: device))
+        }
+        .onChange(of: controller.messages.map(\.objectID)) { _, visibleIDs in
+            guard case let .message(objectID) = selection else {
+                return
+            }
+
+            if !visibleIDs.contains(objectID) {
+                selection = nil
+            }
+        }
+    }
+
+    private var messagesToolbar: some View {
+        HStack(spacing: 10) {
+            TextField("Search message or label…", text: $query.searchText)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 220, idealWidth: 280)
+
+            Menu {
+                Button("Any Level") {
+                    query.levelFilters.removeAll()
+                }
+                Divider()
+                ForEach(PulseMessageLevelFilter.allCases) { filter in
+                    Toggle(filter.title, isOn: levelBinding(for: filter))
+                }
+            } label: {
+                filterPill(title: "Level", value: levelFilterTitle)
+            }
+
+            Spacer(minLength: 12)
+
+            Text("\(controller.messages.count) items")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var levelFilterTitle: String {
+        query.levelFilters.isEmpty ? "Any" : query.levelFilters.map(\.title).sorted().joined(separator: ", ")
+    }
+
+    private func levelBinding(for filter: PulseMessageLevelFilter) -> Binding<Bool> {
+        Binding(
+            get: { query.levelFilters.contains(filter) },
+            set: { isEnabled in
+                if isEnabled {
+                    query.levelFilters.insert(filter)
+                } else {
+                    query.levelFilters.remove(filter)
+                }
+            }
+        )
+    }
+
+    private func filterPill(title: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .lineLimit(1)
+        }
+        .font(.caption)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.quaternary, in: Capsule())
     }
 }
 
@@ -123,26 +206,30 @@ private struct PulseNetworkConsoleView: View {
                         : "当前设备还没有网络请求。"
                 )
             } else {
-                List {
-                    if query.grouping == .none {
-                        ForEach(controller.tasks) { task in
-                            networkRow(task)
-                        }
-                    } else {
-                        ForEach(groupedSections) { section in
-                            Section {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if query.grouping == .none {
+                            ForEach(controller.tasks) { task in
+                                networkRow(task)
+                            }
+                        } else {
+                            ForEach(groupedSections) { section in
+                                groupHeader(for: section)
+                                    .padding(.horizontal, 12)
+                                    .padding(.top, 12)
+                                    .padding(.bottom, 4)
+
                                 if expandedSections.contains(section.id) {
                                     ForEach(section.tasks) { task in
                                         networkRow(task)
                                     }
                                 }
-                            } header: {
-                                groupHeader(for: section)
                             }
                         }
                     }
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .listStyle(.inset)
             }
         }
         .onChange(of: query) { _, newQuery in
@@ -364,11 +451,13 @@ private struct PulseNetworkConsoleView: View {
                 controller.delete(taskWithID: task.objectID)
             }
         )
+        .contentShape(Rectangle())
         .onTapGesture {
             selection = .network(task.objectID)
         }
-        .listRowInsets(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-        .listRowBackground(Color.clear)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .id(task.objectID)
     }
 
     private func statusBinding(for filter: PulseNetworkStatusFilter) -> Binding<Bool> {
@@ -413,6 +502,8 @@ private struct PulseNetworkConsoleView: View {
 
 private struct PulseMessageRowView: View {
     let message: LoggerMessageEntity
+    @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
+    let deleteAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -452,6 +543,17 @@ private struct PulseMessageRowView: View {
             }
         }
         .padding(.vertical, 6)
+        .contextMenu {
+            Button {
+                actionCoordinator.copy(message.text)
+            } label: {
+                Label("Copy Message", systemImage: "doc.on.doc")
+            }
+
+            Divider()
+
+            Button("Delete Message", role: .destructive, action: deleteAction)
+        }
     }
 }
 

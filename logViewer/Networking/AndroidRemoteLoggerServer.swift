@@ -11,6 +11,7 @@ struct AndroidRemoteLoggerPeerStateEvent: Identifiable, Sendable {
     let id: String
     let displayName: String
     let appName: String
+    let details: DeviceDetails?
     let state: State
     let occurredAt: Date
 }
@@ -147,6 +148,7 @@ final class AndroidRemoteLoggerServer: NSObject {
                 id: identity.stableIdentifier,
                 displayName: identity.displayName,
                 appName: identity.appName,
+                details: identity.deviceDetails,
                 state: .connected,
                 occurredAt: .now
             )
@@ -181,6 +183,7 @@ final class AndroidRemoteLoggerServer: NSObject {
                 id: identity.stableIdentifier,
                 displayName: identity.displayName,
                 appName: identity.appName,
+                details: identity.deviceDetails,
                 state: .notConnected,
                 occurredAt: .now
             )
@@ -340,6 +343,7 @@ final class AndroidRemoteLoggerBrowser {
                 id: identity.stableIdentifier,
                 displayName: identity.displayName,
                 appName: identity.appName,
+                details: identity.deviceDetails,
                 state: .connected,
                 occurredAt: .now
             )
@@ -374,6 +378,7 @@ final class AndroidRemoteLoggerBrowser {
                 id: identity.stableIdentifier,
                 displayName: identity.displayName,
                 appName: identity.appName,
+                details: identity.deviceDetails,
                 state: .notConnected,
                 occurredAt: .now
             )
@@ -414,6 +419,16 @@ struct AndroidRemoteLoggerClientIdentity: Sendable {
 
     var stableIdentifier: String {
         "\(deviceID)|\(appName)"
+    }
+
+    var deviceDetails: DeviceDetails {
+        DeviceDetails(
+            model: nil,
+            systemName: "Android",
+            systemVersion: osVersion.isEmpty ? nil : osVersion,
+            appName: appName.isEmpty ? nil : appName,
+            appVersion: appVersion.isEmpty ? nil : appVersion
+        )
     }
 
     init(_ hello: AndroidRemoteLoggerHelloPayload) {

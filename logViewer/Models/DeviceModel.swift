@@ -56,6 +56,22 @@ struct ConnectionRecord: Identifiable, Hashable {
     let note: String
 }
 
+/// Rich metadata about a connected device, gathered from each transport's
+/// handshake / discovery info. Every field is optional because not all
+/// transports expose the same level of detail (e.g. MultipeerConnectivity
+/// only gives a display name unless the sender advertises more).
+struct DeviceDetails: Hashable, Sendable {
+    var model: String?
+    var systemName: String?
+    var systemVersion: String?
+    var appName: String?
+    var appVersion: String?
+
+    var isEmpty: Bool {
+        model == nil && systemName == nil && systemVersion == nil && appName == nil && appVersion == nil
+    }
+}
+
 struct DeviceModel: Identifiable, Hashable {
     let id: String
     var name: String
@@ -63,6 +79,7 @@ struct DeviceModel: Identifiable, Hashable {
     var status: DeviceConnectionStatus
     var transferRateKBps: Double
     var connectionHistory: [ConnectionRecord]
+    var details: DeviceDetails
 
     init(
         id: String,
@@ -70,7 +87,8 @@ struct DeviceModel: Identifiable, Hashable {
         platform: DevicePlatform = .ios,
         status: DeviceConnectionStatus = .disconnected,
         transferRateKBps: Double = 0,
-        connectionHistory: [ConnectionRecord] = []
+        connectionHistory: [ConnectionRecord] = [],
+        details: DeviceDetails = DeviceDetails()
     ) {
         self.id = id
         self.name = name
@@ -78,6 +96,49 @@ struct DeviceModel: Identifiable, Hashable {
         self.status = status
         self.transferRateKBps = transferRateKBps
         self.connectionHistory = connectionHistory
+        self.details = details
+    }
+
+    /// e.g. "iPhone 14 Pro" — falls back to a system summary when no model is known.
+    var modelSummary: String? {
+        if let model = details.model, !model.isEmpty {
+            return model
+        }
+        return systemSummary
+    }
+
+    /// e.g. "iOS 17.4" or "Android 14".
+    var systemSummary: String? {
+        let name = details.systemName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let version = details.systemVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        switch (name.isEmpty, version.isEmpty) {
+        case (false, false):
+            return "\(name) \(version)"
+        case (false, true):
+            return name
+        case (true, false):
+            return version
+        case (true, true):
+            return nil
+        }
+    }
+
+    /// e.g. "MyApp 1.2.0".
+    var appSummary: String? {
+        let name = details.appName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let version = details.appVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        switch (name.isEmpty, version.isEmpty) {
+        case (false, false):
+            return "\(name) \(version)"
+        case (false, true):
+            return name
+        case (true, false):
+            return version
+        case (true, true):
+            return nil
+        }
     }
 
     var transferRateText: String {
@@ -119,5 +180,18 @@ struct DeviceModel: Identifiable, Hashable {
             ),
             at: 0
         )
+    }
+
+    /// Overlays non-empty detail fields onto the current details.
+    mutating func mergeDetails(_ newDetails: DeviceDetails?) {
+        guard let newDetails, !newDetails.isEmpty else {
+            return
+        }
+
+        if let model = newDetails.model { details.model = model }
+        if let systemName = newDetails.systemName { details.systemName = systemName }
+        if let systemVersion = newDetails.systemVersion { details.systemVersion = systemVersion }
+        if let appName = newDetails.appName { details.appName = appName }
+        if let appVersion = newDetails.appVersion { details.appVersion = appVersion }
     }
 }

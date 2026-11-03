@@ -34,7 +34,43 @@ public struct LogViewerPeerStateEvent: Identifiable, Hashable, Sendable {
     public let displayName: String
     public let role: LogViewerPeerRole
     public let state: LogViewerPeerSessionState
+    public let details: LogViewerDeviceDetails
     public let occurredAt: Date
+}
+
+/// Device-level metadata advertised over MultipeerConnectivity discovery info.
+/// Only populated for platforms that advertise it (currently iOS senders).
+public struct LogViewerDeviceDetails: Hashable, Sendable {
+    public var model: String?
+    public var systemName: String?
+    public var systemVersion: String?
+
+    public init(
+        model: String? = nil,
+        systemName: String? = nil,
+        systemVersion: String? = nil
+    ) {
+        self.model = model
+        self.systemName = systemName
+        self.systemVersion = systemVersion
+    }
+
+    public var isEmpty: Bool {
+        model == nil && systemName == nil && systemVersion == nil
+    }
+
+    /// Builds details from a MultipeerConnectivity discoveryInfo dictionary.
+    public init(discoveryInfo: [String: String]?) {
+        func value(_ key: String) -> String? {
+            guard let raw = discoveryInfo?[key] else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        self.model = value(LogViewerMultipeerConfiguration.modelKey)
+        self.systemName = value(LogViewerMultipeerConfiguration.systemNameKey)
+        self.systemVersion = value(LogViewerMultipeerConfiguration.systemVersionKey)
+    }
 }
 
 public struct LogViewerReceivedPacket: Identifiable, Hashable, Sendable {
@@ -64,16 +100,28 @@ public enum LogViewerMultipeerConfiguration {
 
     public nonisolated static let roleKey = "role"
     public nonisolated static let platformKey = "platform"
+    public nonisolated static let modelKey = "model"
+    public nonisolated static let systemNameKey = "systemName"
+    public nonisolated static let systemVersionKey = "systemVersion"
 
     public nonisolated static func makePeerID(displayName: String) -> MCPeerID {
         MCPeerID(displayName: sanitizedDisplayName(displayName))
     }
 
     public nonisolated static func discoveryInfo(for role: LogViewerPeerRole) -> [String: String] {
-        [
+        var info: [String: String] = [
             roleKey: role.rawValue,
             platformKey: currentPlatform
         ]
+
+        #if os(iOS)
+        let device = UIDevice.current
+        info[modelKey] = device.localizedModel
+        info[systemNameKey] = device.systemName
+        info[systemVersionKey] = device.systemVersion
+        #endif
+
+        return info
     }
 
     @MainActor

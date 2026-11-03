@@ -90,7 +90,12 @@ extension ConnectionManager {
     }
 
     func handlePeerStateChange(_ event: LogViewerPeerStateEvent) {
-        let index = ensureDevice(id: event.id, displayName: event.displayName, platform: .ios)
+        let details = DeviceDetails(
+            model: event.details.model,
+            systemName: event.details.systemName,
+            systemVersion: event.details.systemVersion
+        )
+        let index = ensureDevice(id: event.id, displayName: event.displayName, platform: .ios, details: details)
         let wasConnected = devices[index].status == .connected
 
         switch event.state {
@@ -131,7 +136,7 @@ extension ConnectionManager {
     }
 
     func handleRemoteLoggerPeerStateChange(_ event: PulseRemoteLoggerPeerStateEvent) {
-        let index = ensureDevice(id: event.id, displayName: event.displayName, platform: .ios)
+        let index = ensureDevice(id: event.id, displayName: event.displayName, platform: .ios, details: event.details)
         let wasConnected = devices[index].status == .connected
         let connectionLabel = event.appName.map { "Pulse RemoteLogger · \($0)" } ?? "Pulse RemoteLogger"
 
@@ -179,7 +184,7 @@ extension ConnectionManager {
     }
 
     func handleAndroidRemoteLoggerPeerStateChange(_ event: AndroidRemoteLoggerPeerStateEvent) {
-        let index = ensureDevice(id: event.id, displayName: event.displayName, platform: .android)
+        let index = ensureDevice(id: event.id, displayName: event.displayName, platform: .android, details: event.details)
         let wasConnected = devices[index].status == .connected
         let connectionLabel = "Android SDK · \(event.appName)"
 
@@ -222,14 +227,20 @@ extension ConnectionManager {
         sortDevices()
     }
 
-    func ensureDevice(id: DeviceModel.ID, displayName: String, platform: DevicePlatform) -> Int {
+    func ensureDevice(
+        id: DeviceModel.ID,
+        displayName: String,
+        platform: DevicePlatform,
+        details: DeviceDetails? = nil
+    ) -> Int {
         if let existingIndex = devices.firstIndex(where: { $0.id == id }) {
             devices[existingIndex].name = displayName
             devices[existingIndex].platform = platform
+            devices[existingIndex].mergeDetails(details)
             return existingIndex
         }
 
-        let newDevice = DeviceModel(id: id, name: displayName, platform: platform)
+        let newDevice = DeviceModel(id: id, name: displayName, platform: platform, details: details ?? DeviceDetails())
         devices.insert(newDevice, at: 0)
         return 0
     }
@@ -260,6 +271,16 @@ extension ConnectionManager {
         }
     }
 
+    /// Removes a device entry from the sidebar list.
+    /// The underlying transport connections stay alive: if the peer is still
+    /// broadcasting or sending data, the next state change / packet event will
+    /// re-create the device automatically via `ensureDevice`.
+    func removeDevice(id: DeviceModel.ID) {
+        devices.removeAll { $0.id == id }
+        lastPacketDateByDeviceID.removeValue(forKey: id)
+        refreshConnectedDeviceNames()
+    }
+
     func clearStoredRecords() {
         latestReceivedPayload = nil
         lastPacketDateByDeviceID.removeAll()
@@ -272,6 +293,22 @@ extension ConnectionManager {
 
         refreshConnectedDeviceNames()
         sortDevices()
+    }
+
+    /// Clears only the network requests recorded for the given device.
+    func clearNetworkRecords(for device: DeviceModel?) {
+        guard device != nil else {
+            return
+        }
+        pulseInjector.clearNetworkRecords(for: device)
+    }
+
+    /// Clears only the log messages recorded for the given device.
+    func clearMessageRecords(for device: DeviceModel?) {
+        guard device != nil else {
+            return
+        }
+        pulseInjector.clearMessageRecords(for: device)
     }
 }
 #endif

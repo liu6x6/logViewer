@@ -7,7 +7,6 @@ struct LogPanelView: View {
     @Binding var selectedCategory: LogCategory
     @Binding var selectedConsoleSelection: PulseConsoleSelection?
     @ObservedObject var actionCoordinator: NetworkRequestActionCoordinator
-    @State private var isShowingClearConfirmation = false
     @State private var isShowingNetworkBlacklist = false
 
     var body: some View {
@@ -16,31 +15,21 @@ struct LogPanelView: View {
             Divider()
 
             TabView(selection: $selectedCategory) {
-                console(for: .messages)
-                    .tabItem {
-                        Label("Messages", systemImage: LogCategory.messages.symbolName)
-                    }
-                    .tag(LogCategory.messages)
-
                 console(for: .network)
                     .tabItem {
                         Label("Network", systemImage: LogCategory.network.symbolName)
                     }
                     .tag(LogCategory.network)
+
+                console(for: .messages)
+                    .tabItem {
+                        Label("Messages", systemImage: LogCategory.messages.symbolName)
+                    }
+                    .tag(LogCategory.messages)
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
         #if os(macOS)
-        .alert("Clear all records?", isPresented: $isShowingClearConfirmation) {
-            Button("Clear", role: .destructive) {
-                selectedConsoleSelection = nil
-                connectionManager.clearStoredRecords()
-            }
-            .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes all stored messages, network requests, and device connection history from the current session.")
-        }
         .sheet(isPresented: $isShowingNetworkBlacklist) {
             NetworkBlacklistSheet(blocklist: connectionManager.networkBlocklist)
         }
@@ -78,11 +67,20 @@ struct LogPanelView: View {
                 }
 
                 Button(role: .destructive) {
-                    isShowingClearConfirmation = true
+                    connectionManager.clearNetworkRecords(for: device)
                 } label: {
-                    Label("Clear Records", systemImage: "trash")
+                    Label("Clear Network", systemImage: "network")
                 }
                 .buttonStyle(.bordered)
+                .disabled(device == nil)
+
+                Button(role: .destructive) {
+                    connectionManager.clearMessageRecords(for: device)
+                } label: {
+                    Label("Clear Messages", systemImage: "text.bubble")
+                }
+                .buttonStyle(.bordered)
+                .disabled(device == nil)
             }
             #endif
         }

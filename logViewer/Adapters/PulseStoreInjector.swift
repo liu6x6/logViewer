@@ -311,6 +311,65 @@ final class PulseStoreInjector {
         store.removeAll()
     }
 
+    /// Removes only the network requests belonging to the given device.
+    func clearNetworkRecords(for device: DeviceModel?) {
+        guard let predicate = Self.networkPredicate(for: device) else {
+            return
+        }
+
+        let context = store.viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<NetworkTaskEntity>(entityName: "NetworkTaskEntity")
+            request.predicate = predicate
+            request.returnsObjectsAsFaults = false
+
+            guard let tasks = try? context.fetch(request) else {
+                return
+            }
+
+            for task in tasks {
+                if let requestBody = task.requestBody {
+                    context.delete(requestBody)
+                }
+                if let responseBody = task.responseBody {
+                    context.delete(responseBody)
+                }
+                context.delete(task)
+            }
+
+            try? context.safeSave()
+        }
+    }
+
+    /// Removes only the standalone log messages belonging to the given device.
+    func clearMessageRecords(for device: DeviceModel?) {
+        guard let devicePredicate = Self.messagePredicate(for: device) else {
+            return
+        }
+
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            NSPredicate(format: "task == NULL"),
+            devicePredicate
+        ])
+
+        let context = store.viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<LoggerMessageEntity>(entityName: "LoggerMessageEntity")
+            request.predicate = predicate
+            request.returnsObjectsAsFaults = false
+
+            guard let messages = try? context.fetch(request) else {
+                return
+            }
+
+            for message in messages {
+                context.delete(message)
+            }
+
+            try? context.safeSave()
+        }
+    }
+
     func messageEntity(for objectID: NSManagedObjectID) -> LoggerMessageEntity? {
         try? store.viewContext.existingObject(with: objectID) as? LoggerMessageEntity
     }
@@ -587,6 +646,10 @@ final class PulseStoreInjector {
     }
 
     func clearAllRecords() {}
+
+    func clearNetworkRecords(for device: Any?) {}
+
+    func clearMessageRecords(for device: Any?) {}
 
     func messageEntity(for objectID: Any) -> Any? { nil }
 
